@@ -24,7 +24,7 @@ class AuthController extends Controller
 
         $user = User::where('phone', $request->phone)->first();
 
-        if (! $user || ! Hash::check($request->password, $user->password)) {
+        if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'بيانات الدخول غير صحيحة'], 401);
         }
 
@@ -32,12 +32,12 @@ class AuthController extends Controller
         // $user->tokens()->delete();
 
         $token = $user->createToken('auth_token')->plainTextToken;
-        
+
         // Update login stats
         $user->last_login_at = now();
         $user->login_count = $user->login_count + 1;
         $user->save();
-        
+
         // Log session
         \App\Models\UserSession::create([
             'user_id' => $user->id,
@@ -88,7 +88,7 @@ class AuthController extends Controller
     {
         // Create a unique guest user
         $guestPhone = 'guest_' . Str::uuid();
-        
+
         $user = User::create([
             'phone' => $guestPhone,
             'name' => 'Guest User',
@@ -120,7 +120,7 @@ class AuthController extends Controller
             ->whereNull('logout_at')
             ->latest('login_at')
             ->first();
-        
+
         if ($activeSession) {
             $activeSession->update([
                 'logout_at' => now(),
@@ -164,7 +164,7 @@ class AuthController extends Controller
     {
         $user = User::withCount(['followers', 'following', 'ads'])
             ->findOrFail($id);
-            
+
         return response()->json([
             'user' => new UserResource($user),
             'ads' => \App\Http\Resources\AdResource::collection(
@@ -185,7 +185,7 @@ class AuthController extends Controller
 
         $phone = $request->phone;
         $code = (string) rand(100000, 999999);
-        
+
         // Find or create user
         $user = User::firstOrCreate(
             ['phone' => $phone],
@@ -204,9 +204,17 @@ class AuthController extends Controller
         $apiUser = config('services.sms.user_name');
         $pass = config('services.sms.password');
         $message = "رمز التحقق الخاص بك هو: $code";
-        
+
         // Send SMS
         try {
+            if (!$gatewayUrl) {
+                \Log::warning("SMS Gateway URL is null. Skipping SMS send for $phone.");
+                return response()->json([
+                    'message' => 'OTP generated but SMS service is not configured',
+                    'status' => 'generated_no_sms',
+                ]);
+            }
+
             $response = \Illuminate\Support\Facades\Http::get($gatewayUrl, [
                 'orgName' => $org,
                 'userName' => $apiUser,
@@ -215,9 +223,9 @@ class AuthController extends Controller
                 'text' => $message,
                 'coding' => '2',
             ]);
-            
+
             \Log::info("SMS Response for $phone: " . $response->body());
-            
+
         } catch (\Exception $e) {
             \Log::error("SMS Error: " . $e->getMessage());
         }
@@ -373,7 +381,7 @@ class AuthController extends Controller
                         'color_hex' => '#10B981',
                     ]
                 ];
-                
+
                 if ($ad->status === 'sold') {
                     $acts[] = [
                         'type' => 'ad_sold',
