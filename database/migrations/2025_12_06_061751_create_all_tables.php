@@ -4,13 +4,14 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
     public function up(): void
     {
+        Schema::disableForeignKeyConstraints();
+
         // 2. categories
         Schema::create('categories', function (Blueprint $table) {
             $table->increments('id');
@@ -214,8 +215,8 @@ return new class extends Migration
             $table->timestamps();
         });
 
-         // 15. subscriptions
-         Schema::create('subscriptions', function (Blueprint $table) {
+        // 15. subscriptions
+        Schema::create('subscriptions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             $table->unsignedInteger('plan_id');
@@ -265,6 +266,8 @@ return new class extends Migration
             $table->decimal('revenue', 15, 2)->default(0.00);
             $table->timestamps();
         });
+
+        Schema::enableForeignKeyConstraints();
     }
 
     /**
@@ -272,6 +275,7 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('statistics');
         Schema::dropIfExists('locations');
         Schema::dropIfExists('subscriptions');
@@ -289,5 +293,6 @@ return new class extends Migration
         Schema::dropIfExists('ads');
         Schema::dropIfExists('category_fields');
         Schema::dropIfExists('categories');
+        Schema::enableForeignKeyConstraints();
     }
 };
