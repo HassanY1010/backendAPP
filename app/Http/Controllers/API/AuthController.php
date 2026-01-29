@@ -177,18 +177,19 @@ class AuthController extends Controller
      */
     public function sendOtp(Request $request)
     {
-        // 1. Normalize phone (strip +, 00, spaces)
+        // 1. Normalize phone (strip +, 00, spaces, then prepend +)
         $phone = $request->phone;
         $phone = str_replace(['+', ' ', '-'], '', $phone);
         if (str_starts_with($phone, '00')) {
             $phone = substr($phone, 2);
         }
+        $phone = '+' . $phone; // Alawaeltec strictly requires the + sign
 
-        // 2. Validate normalized phone
+        // 2. Validate normalized phone (+ sign then 12 digits for Yemen/Saudi)
         $validator = \Illuminate\Support\Facades\Validator::make(['phone' => $phone], [
-            'phone' => ['required', 'string', 'regex:/^(967[0-9]{6,9}|966[0-9]{9})$/'],
+            'phone' => ['required', 'string', 'regex:/^\+(967[0-9]{9}|966[0-9]{9})$/'],
         ], [
-            'phone.regex' => 'رقم الهاتف غير صحيح. يجب أن يبدأ بـ 967 (اليمن) أو 966 (السعودية)',
+            'phone.regex' => 'رقم الهاتف غير صحيح. يجب أن يبدأ بـ +967 (اليمن) أو +966 (السعودية) ويتكون من 13 خانة.',
         ]);
 
         if ($validator->fails()) {
