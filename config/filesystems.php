@@ -41,7 +41,7 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => env('APP_URL').'/storage',
+            'url' => env('APP_URL') . '/storage',
             'visibility' => 'public',
             'throw' => false,
             'report' => false,
@@ -58,6 +58,18 @@ return [
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => false,
             'report' => false,
+        ],
+
+        'supabase' => [
+            'driver' => 's3',
+            'key' => env('SUPABASE_STORAGE_KEY'), // Service Role Secret or specific storage key if available
+            'secret' => env('SUPABASE_STORAGE_SECRET'),
+            'region' => 'us-east-1', // Generic region 
+            'bucket' => env('SUPABASE_STORAGE_BUCKET'),
+            'endpoint' => env('SUPABASE_STORAGE_ENDPOINT'), // https://<project_id>.supabase.co/storage/v1/s3
+            'url' => '', //  managed manually or via frontend
+            'use_path_style_endpoint' => true,
+            'throw' => false,
         ],
 
     ],
