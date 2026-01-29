@@ -111,12 +111,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/stats', [\App\Http\Controllers\API\Admin\StatsController::class, 'index']);
         });
     });
+    // Public Routes
+    Route::get('/ads/recent', [AdController::class, 'recent']); // Top 4 recent ads
+    Route::get('/categories', [CategoryController::class, 'index']);
+    Route::get('/ads', [AdController::class, 'index']);
+    Route::get('/ads/{id}', [AdController::class, 'show']);
+    Route::get('/ads/{id}/comments', [\App\Http\Controllers\CommentController::class, 'index']);
+    Route::get('/users/{id}/profile', [\App\Http\Controllers\API\AuthController::class, 'publicProfile']);
 });
-
-// Public Routes
-Route::get('/ads/recent', [AdController::class, 'recent']); // Top 4 recent ads
-Route::get('/categories', [CategoryController::class, 'index']);
-Route::get('/ads', [AdController::class, 'index']);
-Route::get('/ads/{id}', [AdController::class, 'show']);
-Route::get('/ads/{id}/comments', [\App\Http\Controllers\CommentController::class, 'index']);
-Route::get('/users/{id}/profile', [\App\Http\Controllers\API\AuthController::class, 'publicProfile']);
