@@ -24,7 +24,6 @@ class AdminSeeder extends Seeder
                 'phone' => '782305677',
                 'password' => Hash::make('abc098abc123'),
                 'role' => 'admin',
-                'is_verified' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
