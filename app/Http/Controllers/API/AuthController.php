@@ -177,13 +177,24 @@ class AuthController extends Controller
      */
     public function sendOtp(Request $request)
     {
-        $request->validate([
+        // 1. Normalize phone (strip +, 00, spaces)
+        $phone = $request->phone;
+        $phone = str_replace(['+', ' ', '-'], '', $phone);
+        if (str_starts_with($phone, '00')) {
+            $phone = substr($phone, 2);
+        }
+
+        // 2. Validate normalized phone
+        $validator = \Illuminate\Support\Facades\Validator::make(['phone' => $phone], [
             'phone' => ['required', 'string', 'regex:/^(967[0-9]{6,9}|966[0-9]{9})$/'],
         ], [
             'phone.regex' => 'رقم الهاتف غير صحيح. يجب أن يبدأ بـ 967 (اليمن) أو 966 (السعودية)',
         ]);
 
-        $phone = $request->phone;
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
         $code = (string) rand(100000, 999999);
 
         // Find or create user
@@ -224,10 +235,23 @@ class AuthController extends Controller
                 'coding' => '2',
             ]);
 
-            \Log::info("SMS Response for $phone: " . $response->body());
+            if ($response->successful()) {
+                \Log::info("SMS Success for $phone: " . $response->body());
+            } else {
+                \Log::error("SMS Gateway Error for $phone (Status {$response->status()}): " . $response->body());
+                return response()->json([
+                    'message' => 'SMS gateway returned an error. Please contact support.',
+                    'status' => 'gateway_error',
+                    'detail' => $response->status()
+                ], 502);
+            }
 
         } catch (\Exception $e) {
-            \Log::error("SMS Error: " . $e->getMessage());
+            \Log::error("SMS Exception for $phone: " . $e->getMessage());
+            return response()->json([
+                'message' => 'Unable to connect to SMS service.',
+                'status' => 'connection_failed'
+            ], 503);
         }
 
         return response()->json([
