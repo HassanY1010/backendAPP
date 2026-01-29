@@ -272,25 +272,36 @@ class AuthController extends Controller
             'code' => 'required|string|size:6',
         ]);
 
-        $user = User::where('phone', $request->phone)->first();
+        // Normalize phone to match the format stored in sendOtp
+        $phone = $request->phone;
+        $phone = str_replace(['+', ' ', '-'], '', $phone);
+        if (str_starts_with($phone, '00')) {
+            $phone = substr($phone, 2);
+        }
+        $phone = '+' . $phone;
+
+        $user = User::where('phone', $phone)->first();
 
         if (!$user) {
+            \Log::warning("Verify OTP: User not found for normalized phone: $phone (Original: {$request->phone})");
             return response()->json([
-                'message' => 'User not found',
+                'message' => 'المستخدم غير موجود. تأكد من إدخال نفس الرقم الصحيح.',
                 'valid' => false
             ], 404);
         }
 
         if ($user->otp !== $request->code) {
+            \Log::warning("Verify OTP: Code mismatch for $phone. Stored: {$user->otp}, Input: {$request->code}");
             return response()->json([
-                'message' => 'Invalid verification code',
+                'message' => 'كود التحقق غير صحيح.',
                 'valid' => false
             ], 400);
         }
 
         if ($user->otp_expires_at && now()->gt($user->otp_expires_at)) {
+            \Log::warning("Verify OTP: Code expired for $phone. Expires: {$user->otp_expires_at}, Now: " . now());
             return response()->json([
-                'message' => 'Verification code expired',
+                'message' => 'كود التحقق انتهت صلاحيته.',
                 'valid' => false
             ], 400);
         }
