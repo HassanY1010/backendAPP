@@ -11,7 +11,7 @@ class ProfileController extends Controller
     public function update(Request $request)
     {
         $user = $request->user();
-        
+
         $request->validate([
             'name' => 'sometimes|string|max:255',
             'phone' => 'sometimes|string|max:20',
@@ -33,7 +33,12 @@ class ProfileController extends Controller
             if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
                 Storage::disk('public')->delete($user->avatar);
             }
-            
+
+            // Ensure avatars directory exists
+            if (!Storage::disk('public')->exists('avatars')) {
+                Storage::disk('public')->makeDirectory('avatars');
+            }
+
             // Store new avatar
             $path = $request->file('avatar')->store('avatars', 'public');
             $user->avatar = $path;
@@ -58,7 +63,7 @@ class ProfileController extends Controller
     public function destroy(Request $request)
     {
         $user = $request->user();
-        
+
         try {
             \Illuminate\Support\Facades\DB::transaction(function () use ($user) {
                 // 1. Detach many-to-many relationships
@@ -73,10 +78,10 @@ class ProfileController extends Controller
 
                 // 3. Delete Ads (This usually triggers observers/events if set up, but we can allow cascade)
                 // The User model's boot method already handles $user->ads(), comments, messages, avatar.
-                
+
                 // 4. Revoke tokens
                 $user->tokens()->delete();
-                
+
                 // 5. Finally delete the user
                 $user->delete();
             });
@@ -97,11 +102,15 @@ class ProfileController extends Controller
     {
         try {
             $user = $request->user();
-            
+
             // Eager load everything needed for the report
-            $user->load(['ads' => function($q) {
-                $q->orderBy('created_at', 'desc');
-            }, 'reviewsReceived', 'favorites']);
+            $user->load([
+                'ads' => function ($q) {
+                    $q->orderBy('created_at', 'desc');
+                },
+                'reviewsReceived',
+                'favorites'
+            ]);
 
             // Fetch stats if available via a service or recalculate
             $stats = [
@@ -123,7 +132,7 @@ class ProfileController extends Controller
                     'avatar_url' => $user->avatar_url,
                 ],
                 'stats' => $stats,
-                'ads' => $user->ads->map(function($ad) {
+                'ads' => $user->ads->map(function ($ad) {
                     return [
                         'id' => $ad->id,
                         'title' => $ad->title,
@@ -134,7 +143,7 @@ class ProfileController extends Controller
                         'views' => $ad->views,
                     ];
                 }),
-                'reviews' => $user->reviewsReceived->map(function($review) {
+                'reviews' => $user->reviewsReceived->map(function ($review) {
                     return [
                         'rating' => $review->rating,
                         'comment' => $review->comment,

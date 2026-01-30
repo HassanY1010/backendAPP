@@ -10,6 +10,7 @@ use App\Http\Requests\UpdateAdRequest;
 use App\Http\Resources\AdResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class AdController extends Controller
 {
@@ -216,6 +217,11 @@ class AdController extends Controller
 
                 if (!$file->isValid()) {
                     return response()->json(['message' => 'File is not valid: ' . $file->getErrorMessage()], 400);
+                }
+
+                // Ensure ads directory exists
+                if (!Storage::disk('public')->exists('ads')) {
+                    Storage::disk('public')->makeDirectory('ads');
                 }
 
                 $path = $file->store('ads', 'public');

@@ -38,6 +38,12 @@ class MessageController extends Controller
 
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
+
+                // Ensure chat directory exists
+                if (!\Illuminate\Support\Facades\Storage::disk('public')->exists('chat')) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->makeDirectory('chat');
+                }
+
                 $path = $file->store('chat', 'public');
                 $messageData['file_url'] = url('local-cdn/' . $path);
                 $messageData['message_type'] = 'image';
@@ -66,7 +72,7 @@ class MessageController extends Controller
     {
         // Security Check: potentially vulnerable IDOR if we blindly trust $userId from URL
         // We should ensure the authenticated user is one of the participants.
-        
+
         $authUserId = $request->user()->id;
 
         // Allow if auth user is $userId OR $otherUserId
@@ -74,9 +80,9 @@ class MessageController extends Controller
             return response()->json(['error' => 'Unauthorized access to messages'], 403);
         }
 
-        $messages = Message::where(function($q) use ($userId, $otherUserId){
+        $messages = Message::where(function ($q) use ($userId, $otherUserId) {
             $q->where('sender_id', $userId)->where('receiver_id', $otherUserId);
-        })->orWhere(function($q) use ($userId, $otherUserId){
+        })->orWhere(function ($q) use ($userId, $otherUserId) {
             $q->where('sender_id', $otherUserId)->where('receiver_id', $userId);
         })->orderBy('created_at', 'asc')->get();
 
@@ -87,7 +93,7 @@ class MessageController extends Controller
     {
         try {
             $userId = $request->user()->id;
-            
+
             // Get the last message for each conversation involving the user
             // We use a subquery to find the latest message ID for each unique contact
             $latestMessagesIds = Message::where('sender_id', $userId)
@@ -110,7 +116,7 @@ class MessageController extends Controller
                         'date' => $msg->created_at,
                     ];
                 });
-            
+
             return response()->json($conversations);
         } catch (\Exception $e) {
             \Log::error('Error fetching conversations: ' . $e->getMessage());
