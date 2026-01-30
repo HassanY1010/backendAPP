@@ -108,7 +108,8 @@ class AdController extends Controller
             'condition' => $request->input('condition', 'used'),
             'location' => $request->location,
             'status' => 'active', // Instant publishing - no review needed
-            'contact_phone' => $request->input('contact_phone') ?? $request->user()->phone,
+            'contact_phone' => $request->has('contact_phone') ? $request->contact_phone : $request->user()->phone,
+            'contact_whatsapp' => $request->input('contact_whatsapp'),
         ]);
 
         if ($request->has('images')) {

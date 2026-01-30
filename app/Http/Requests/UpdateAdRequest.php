@@ -10,7 +10,7 @@ class UpdateAdRequest extends FormRequest
     {
         // Ownership check is done in Controller usually, or here if we load route param
         // For simplicity, we authorize generic access and rely on controller's ownership query
-        return true; 
+        return true;
     }
 
     public function rules(): array
@@ -23,6 +23,8 @@ class UpdateAdRequest extends FormRequest
             'is_negotiable' => 'boolean',
             'condition' => 'nullable|string|in:new,used,refurbished',
             'category_id' => 'exists:categories,id',
+            'contact_phone' => 'nullable|string|max:20',
+            'contact_whatsapp' => 'nullable|string|max:20',
         ];
     }
 }

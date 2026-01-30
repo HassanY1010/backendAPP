@@ -21,6 +21,8 @@ class StoreAdRequest extends FormRequest
             'location' => 'required|string',
             'is_negotiable' => 'boolean',
             'condition' => 'nullable|string|in:new,used,refurbished',
+            'contact_phone' => 'nullable|string|max:20',
+            'contact_whatsapp' => 'nullable|string|max:20',
             'images' => 'array',
             'images.*' => 'string',
         ];

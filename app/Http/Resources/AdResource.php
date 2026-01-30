@@ -22,6 +22,7 @@ class AdResource extends JsonResource
             'status' => $this->status,
             'views' => $this->views,
             'contact_phone' => $this->contact_phone,
+            'contact_whatsapp' => $this->contact_whatsapp,
             'created_at' => $this->created_at,
             'user' => new UserResource($this->whenLoaded('user')),
             'category' => $this->whenLoaded('category', function () {
