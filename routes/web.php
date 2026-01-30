@@ -19,6 +19,11 @@ Route::options('/local-cdn/{path}', function () {
 Route::get('/local-cdn/{path}', function ($path) {
     // Check if file exists
     if (!Storage::disk('public')->exists($path)) {
+        // Log the missing file for debugging
+        \Log::warning("Asset not found at local-cdn: {$path}", [
+            'disk_path' => Storage::disk('public')->path($path),
+            'url' => url()->current(),
+        ]);
         // If it's an avatar request and file doesn't exist, return a default avatar placeholder
         if (str_starts_with($path, 'avatars/')) {
             return response()->file(public_path('images/default-avatar.png'), [

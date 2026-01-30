@@ -10,17 +10,27 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::table('messages', function (Blueprint $table) {
-            $table->index(['sender_id', 'receiver_id', 'created_at']);
-        });
+        // Use try-catch for each table to handle partial migration failure (DDL is not transactional in MySQL)
+        try {
+            Schema::table('messages', function (Blueprint $table) {
+                $table->index(['sender_id', 'receiver_id', 'created_at']);
+            });
+        } catch (\Exception $e) {
+        }
 
-        Schema::table('ads', function (Blueprint $table) {
-            $table->index(['status', 'category_id', 'created_at']);
-        });
+        try {
+            Schema::table('ads', function (Blueprint $table) {
+                $table->index(['status', 'category_id', 'created_at']);
+            });
+        } catch (\Exception $e) {
+        }
 
-        Schema::table('favorites', function (Blueprint $table) {
-            $table->index(['user_id', 'ad_id']);
-        });
+        try {
+            Schema::table('favorites', function (Blueprint $table) {
+                $table->index(['user_id', 'ad_id']);
+            });
+        } catch (\Exception $e) {
+        }
     }
 
     /**

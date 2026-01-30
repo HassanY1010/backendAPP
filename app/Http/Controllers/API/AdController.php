@@ -121,7 +121,7 @@ class AdController extends Controller
             }
         }
 
-        return new AdResource($ad);
+        return new AdResource($ad->load(['user', 'category', 'mainImage']));
     }
 
     public function update(UpdateAdRequest $request, $id)
