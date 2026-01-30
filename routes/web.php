@@ -18,22 +18,24 @@ Route::options('/local-cdn/{path}', function () {
 
 Route::get('/local-cdn/{path}', function ($path) {
     // Check if file exists
-    if (! Storage::disk('public')->exists($path)) {
-        // If it's an avatar request and file doesn't exist, return a default avatar
+    if (!Storage::disk('public')->exists($path)) {
+        // If it's an avatar request and file doesn't exist, return a default avatar placeholder
         if (str_starts_with($path, 'avatars/')) {
-            // You can create a default avatar or return a placeholder
-            // For now, return 404 but log the missing file
-            \Log::warning("Missing avatar file: {$path}");
-            abort(404, 'Avatar not found');
+            return response()->file(public_path('images/default-avatar.png'), [
+                'Content-Type' => 'image/png',
+                'Cache-Control' => 'public, max-age=3600', // Cache placeholders for an hour
+                'Access-Control-Allow-Origin' => '*',
+            ]);
         }
         abort(404);
     }
-    
+
     $filePath = Storage::disk('public')->path($path);
     $mimeType = mime_content_type($filePath);
-    
+
     return response()->file($filePath, [
         'Content-Type' => $mimeType,
+        'Cache-Control' => 'public, max-age=31536000', // Cache assets for a year
         'Access-Control-Allow-Origin' => '*',
         'Access-Control-Allow-Methods' => 'GET, OPTIONS',
         'Access-Control-Allow-Headers' => '*',
