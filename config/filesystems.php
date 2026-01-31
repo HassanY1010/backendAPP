@@ -62,12 +62,24 @@ return [
 
         'supabase' => [
             'driver' => 's3',
-            'key' => env('SUPABASE_STORAGE_KEY'), // Service Role Secret or specific storage key if available
+            'key' => env('SUPABASE_STORAGE_KEY'),
             'secret' => env('SUPABASE_STORAGE_SECRET'),
-            'region' => 'us-east-1', // Generic region 
-            'bucket' => env('SUPABASE_STORAGE_BUCKET'),
-            'endpoint' => env('SUPABASE_STORAGE_ENDPOINT'), // https://<project_id>.supabase.co/storage/v1/s3
-            'url' => '', //  managed manually or via frontend
+            'region' => 'us-east-1',
+            'bucket' => 'uploads', // Explicitly set to 'uploads' for Ads
+            'endpoint' => env('SUPABASE_STORAGE_ENDPOINT'),
+            'url' => env('SUPABASE_URL') . '/storage/v1/object/public/uploads',
+            'use_path_style_endpoint' => true,
+            'throw' => false,
+        ],
+
+        'supabase_avatars' => [
+            'driver' => 's3',
+            'key' => env('SUPABASE_STORAGE_KEY'),
+            'secret' => env('SUPABASE_STORAGE_SECRET'),
+            'region' => 'us-east-1',
+            'bucket' => 'avatars', // Explicitly set to 'avatars' for Users
+            'endpoint' => env('SUPABASE_STORAGE_ENDPOINT'),
+            'url' => env('SUPABASE_URL') . '/storage/v1/object/public/avatars',
             'use_path_style_endpoint' => true,
             'throw' => false,
         ],

@@ -55,7 +55,7 @@ class Ad extends Model
      */
     protected static function booted()
     {
-        static::deleting(function ($ad) {
+        $cleanup = function ($ad) {
             // Delete associated images (this will trigger AdImage's deleted event to remove files)
             $ad->images()->each(function ($image) {
                 $image->delete();
@@ -66,10 +66,13 @@ class Ad extends Model
 
             // Detach from favorites
             $ad->favoritedBy()->detach();
-            
+
             // Delete custom fields
             $ad->customFields()->delete();
-        });
+        };
+
+        static::deleting($cleanup);
+        static::forceDeleting($cleanup);
     }
 
     public function user()

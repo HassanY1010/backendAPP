@@ -35,14 +35,16 @@ class AdResource extends JsonResource
             'category_id' => $this->category_id, // Include category_id for fallback logic
             'main_image' => $this->whenLoaded('mainImage', function () {
                 return [
-                    'image_url' => $this->mainImage->image_url, // Uses the accessor with local-cdn
+                    'image_url' => $this->mainImage->image_url,
+                    'thumbnail_url' => $this->mainImage->thumbnail_url,
                     'image_path' => $this->mainImage->image_path,
                 ];
             }),
             'images' => $this->whenLoaded('images', function () {
                 return $this->images->map(function ($img) {
                     return [
-                        'image_url' => $img->image_url, // Uses the accessor with local-cdn
+                        'image_url' => $img->image_url,
+                        'thumbnail_url' => $img->thumbnail_url,
                         'image_path' => $img->image_path,
                     ];
                 });

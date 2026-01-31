@@ -11,13 +11,13 @@ class AdController extends Controller
     public function index(Request $request)
     {
         $query = Ad::with(['user', 'category', 'mainImage']);
-        
+
         // Search by title or description
         if ($request->has('search') && $request->search) {
             $search = $request->search;
-            $query->where(function($q) use ($search) {
+            $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%");
+                    ->orWhere('description', 'like', "%{$search}%");
             });
         }
 
@@ -25,17 +25,17 @@ class AdController extends Controller
         if ($request->has('status') && $request->status) {
             $query->where('status', $request->status);
         }
-        
+
         // Filter by category
         if ($request->has('category_id') && $request->category_id) {
             $query->where('category_id', $request->category_id);
         }
-        
+
         // Filter by user
         if ($request->has('user_id') && $request->user_id) {
             $query->where('user_id', $request->user_id);
         }
-        
+
         // Sort
         $sortBy = $request->get('sort_by', 'created_at');
         $sortOrder = $request->get('sort_order', 'desc');
@@ -73,7 +73,7 @@ class AdController extends Controller
     public function destroy($id)
     {
         $ad = Ad::findOrFail($id);
-        $ad->delete();
+        $ad->forceDelete();
 
         return response()->json(['message' => 'Ad deleted successfully']);
     }

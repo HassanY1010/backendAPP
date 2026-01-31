@@ -38,9 +38,19 @@ class AdImage extends Model
      *
      * @return string|null
      */
+    /**
+     * Get the full URL for the image.
+     *
+     * @return string|null
+     */
     public function getImageUrlAttribute()
     {
-        return $this->image_path ? url('local-cdn/' . $this->image_path) : null;
+        if (!$this->image_path)
+            return null;
+
+        // Return direct public URL from Supabase
+        // We use the 'supabase' disk configuration to generate the URL
+        return \Illuminate\Support\Facades\Storage::disk('supabase')->url($this->image_path);
     }
 
     /**
@@ -50,7 +60,12 @@ class AdImage extends Model
      */
     public function getThumbnailUrlAttribute()
     {
-        return $this->thumbnail_path ? url('local-cdn/' . $this->thumbnail_path) : null;
+        if (!$this->thumbnail_path) {
+            // Fallback to main image if no thumbnail exists (backward compatibility)
+            return $this->image_url;
+        }
+
+        return \Illuminate\Support\Facades\Storage::disk('supabase')->url($this->thumbnail_path);
     }
 
     /**
@@ -60,10 +75,10 @@ class AdImage extends Model
     {
         static::deleted(function ($image) {
             if ($image->image_path) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete($image->image_path);
+                \Illuminate\Support\Facades\Storage::disk('supabase')->delete($image->image_path);
             }
             if ($image->thumbnail_path) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete($image->thumbnail_path);
+                \Illuminate\Support\Facades\Storage::disk('supabase')->delete($image->thumbnail_path);
             }
         });
     }

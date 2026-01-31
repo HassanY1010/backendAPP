@@ -117,6 +117,7 @@ class AdController extends Controller
                 AdImage::create([
                     'ad_id' => $ad->id,
                     'image_path' => $imagePath,
+                    'thumbnail_path' => 'ads/thumbnails/' . basename($imagePath), // Infer thumbnail path from convention
                     'is_main' => $index === 0,
                     'sort_order' => $index,
                 ]);
@@ -159,6 +160,7 @@ class AdController extends Controller
                     AdImage::create([
                         'ad_id' => $ad->id,
                         'image_path' => $imagePath,
+                        'thumbnail_path' => 'ads/thumbnails/' . basename($imagePath), // Infer thumbnail path
                         'is_main' => ($currentImagesCount + $index) === 0, // Set as main if it's the first ever image
                         'sort_order' => $currentImagesCount + $index,
                     ]);
@@ -210,7 +212,7 @@ class AdController extends Controller
     {
         try {
             $request->validate([
-                'image' => 'required|image|max:10240',
+                'image' => 'required|image|max:10240', // 10MB max
             ]);
 
             if ($request->file('image')) {
@@ -220,20 +222,57 @@ class AdController extends Controller
                     return response()->json(['message' => 'File is not valid: ' . $file->getErrorMessage()], 400);
                 }
 
-                // Ensure ads directory exists
-                if (!Storage::disk('public')->exists('ads')) {
-                    Storage::disk('public')->makeDirectory('ads');
+                // Generate a unique filename
+                $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
+                $path = 'ads/' . $filename;
+                $thumbnailPath = 'ads/thumbnails/' . $filename;
+
+                // Upload original image to Supabase
+                // Using stream to save memory
+                $stream = fopen($file->getRealPath(), 'r+');
+                Storage::disk('supabase')->put($path, $stream, 'public');
+                fclose($stream);
+
+                // Generate and upload thumbnail
+                // We use Intervention Image to resize. 
+                // Since v3, usage is slightly different. We'll use the manager or static facade if registered.
+                // Fallback to simple file upload if image manipulation fails (or just upload same file as thumb if needed, but resizing is better)
+
+                try {
+                    // Create manager instance with desired driver (gd or imagick)
+                    $manager = new \Intervention\Image\ImageManager(
+                        new \Intervention\Image\Drivers\Gd\Driver()
+                    );
+
+                    $image = $manager->read($file);
+
+                    // Resize to max width 400px, constrain aspect ratio
+                    $image->scale(width: 400);
+
+                    // Encode as w/e original format was, or jpeg/webp
+                    $encoded = $image->toJpeg(quality: 80);
+
+                    Storage::disk('supabase')->put($thumbnailPath, (string) $encoded, 'public');
+                } catch (\Exception $e) {
+                    \Log::warning('Thumbnail generation failed: ' . $e->getMessage());
+                    // Fallback: use original image as thumbnail to avoid breaking UI
+                    $streamOriginal = fopen($file->getRealPath(), 'r+');
+                    Storage::disk('supabase')->put($thumbnailPath, $streamOriginal, 'public');
+                    fclose($streamOriginal);
                 }
 
-                $path = $file->store('ads', 'public');
+                // Return paths to be saved in AdImage model (or temporary usage)
+                // Note: The AdController::store method expects 'images' array with paths.
+                // We return the path relative to the bucket root.
 
-                if (!$path) {
-                    return response()->json(['message' => 'Failed to store file'], 500);
-                }
+                // Construct Public URL for immediate frontend preview
+                $url = Storage::disk('supabase')->url($path);
 
-                $url = url('local-cdn/' . $path);
-
-                return response()->json(['path' => $path, 'url' => $url]);
+                return response()->json([
+                    'path' => $path,
+                    'thumbnail_path' => $thumbnailPath,
+                    'url' => $url
+                ]);
             }
 
             return response()->json(['message' => 'No image file uploaded'], 400);

@@ -88,7 +88,9 @@ class User extends Authenticatable
      */
     public function getAvatarUrlAttribute()
     {
-        return $this->avatar ? url('local-cdn/' . $this->avatar) : null;
+        if (!$this->avatar)
+            return null;
+        return \Illuminate\Support\Facades\Storage::disk('supabase_avatars')->url($this->avatar);
     }
 
     /**
@@ -104,7 +106,7 @@ class User extends Authenticatable
 
             // Delete physical avatar file
             if ($user->avatar) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete($user->avatar);
+                \Illuminate\Support\Facades\Storage::disk('supabase_avatars')->delete($user->avatar);
             }
 
             // Delete comments, messages, etc.

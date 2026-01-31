@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ProfileController extends Controller
 {
@@ -30,17 +31,26 @@ class ProfileController extends Controller
 
         if ($request->hasFile('avatar')) {
             // Delete old avatar if exists
-            if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
-                Storage::disk('public')->delete($user->avatar);
+            if ($user->avatar) {
+                // Check if it's on supabase or local (for migration phase, we might want to try deleting from both or just assume supabase going forward)
+                // For a clean cutover, we'll delete from supabase. If old files are local, they'll just be orphaned or we can add a check.
+                // Assuming we want to support the new system:
+                if (Storage::disk('supabase_avatars')->exists($user->avatar)) {
+                    Storage::disk('supabase_avatars')->delete($user->avatar);
+                }
             }
 
-            // Ensure avatars directory exists
-            if (!Storage::disk('public')->exists('avatars')) {
-                Storage::disk('public')->makeDirectory('avatars');
-            }
+            // Store new avatar in Supabase
+            // We can also resize here if we want, but for now direct upload is fine or basic resize
+            $file = $request->file('avatar');
+            $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
+            $path = $filename; // Store at root of avatars bucket
 
-            // Store new avatar
-            $path = $request->file('avatar')->store('avatars', 'public');
+            // Upload to Supabase public bucket
+            $stream = fopen($file->getRealPath(), 'r+');
+            Storage::disk('supabase_avatars')->put($path, $stream, 'public');
+            fclose($stream);
+
             $user->avatar = $path;
         }
 
