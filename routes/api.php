@@ -15,6 +15,23 @@ use App\Http\Controllers\API\ProfileController;
 // App Reviews
 Route::post('/app-reviews', [AppReviewController::class, 'store']);
 
+// Test Image URL Generation (Diagnostic)
+Route::get('/test-image-url', function () {
+    $image = \App\Models\AdImage::first();
+    if (!$image) {
+        return response()->json(['error' => 'No images found in database']);
+    }
+    return response()->json([
+        'image_path' => $image->image_path,
+        'thumbnail_path' => $image->thumbnail_path,
+        'generated_image_url' => $image->image_url,
+        'generated_thumbnail_url' => $image->thumbnail_url,
+        'expected_format' => env('SUPABASE_URL') . '/storage/v1/object/public/uploads/' . $image->image_path,
+        'config_url' => config('filesystems.disks.supabase.url'),
+    ]);
+});
+
+
 // Auth Routes with Rate Limiting
 Route::prefix('v1')->group(function () {
     Route::middleware('throttle:5,1')->group(function () {

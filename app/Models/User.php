@@ -90,7 +90,11 @@ class User extends Authenticatable
     {
         if (!$this->avatar)
             return null;
-        return \Illuminate\Support\Facades\Storage::disk('supabase_avatars')->url($this->avatar);
+
+        // Manually construct Supabase public URL for avatars
+        $supabaseUrl = env('SUPABASE_URL');
+        $bucket = 'avatars';
+        return "{$supabaseUrl}/storage/v1/object/public/{$bucket}/{$this->avatar}";
     }
 
     /**

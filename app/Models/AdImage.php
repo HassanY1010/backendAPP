@@ -38,19 +38,16 @@ class AdImage extends Model
      *
      * @return string|null
      */
-    /**
-     * Get the full URL for the image.
-     *
-     * @return string|null
-     */
     public function getImageUrlAttribute()
     {
         if (!$this->image_path)
             return null;
 
-        // Return direct public URL from Supabase
-        // We use the 'supabase' disk configuration to generate the URL
-        return \Illuminate\Support\Facades\Storage::disk('supabase')->url($this->image_path);
+        // Manually construct Supabase public URL
+        // Format: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
+        $supabaseUrl = env('SUPABASE_URL');
+        $bucket = 'uploads';
+        return "{$supabaseUrl}/storage/v1/object/public/{$bucket}/{$this->image_path}";
     }
 
     /**
@@ -65,7 +62,10 @@ class AdImage extends Model
             return $this->image_url;
         }
 
-        return \Illuminate\Support\Facades\Storage::disk('supabase')->url($this->thumbnail_path);
+        // Manually construct Supabase public URL for thumbnail
+        $supabaseUrl = env('SUPABASE_URL');
+        $bucket = 'uploads';
+        return "{$supabaseUrl}/storage/v1/object/public/{$bucket}/{$this->thumbnail_path}";
     }
 
     /**
