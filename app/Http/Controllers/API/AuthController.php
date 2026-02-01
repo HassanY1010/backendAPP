@@ -250,15 +250,19 @@ class AuthController extends Controller
             $responseBody = $response->body();
 
             if ($response->successful()) {
-                // Check if the response actually indicates success (Alawaeltec returns 1701 for success)
-                if (str_contains($responseBody, '1701') || str_contains($responseBody, 'Success') || str_contains($responseBody, 'OK')) {
-                    \Log::info("SMS Success for $phone: " . $responseBody);
+                // Determine if we should treat this as a success.
+                // Optimistic approach: if the HTTP request worked, assume the message was queued/sent 
+                // unless we find a known fatal error code (like 1702, 1703).
+                $isExplicitError = str_contains($responseBody, '1702') || str_contains($responseBody, '1703');
+
+                if (!$isExplicitError) {
+                    \Log::info("SMS Optimistic Success for $phone: " . $responseBody);
                 } else {
-                    \Log::error("SMS Gateway logic error for $phone: " . $responseBody);
+                    \Log::error("SMS Gateway explicit error for $phone: " . $responseBody);
                     return response()->json([
                         'message' => 'تعذر إرسال الرمز حالياً، يرجى التأكد من صحة الرقم أو المحاولة لاحقاً.',
-                        'gateway_response' => $responseBody // Useful for debugging in dev
-                    ], 400); // Using 400 (Bad Request) instead of 5xx to avoid technical error pages in app
+                        'gateway_response' => $responseBody
+                    ], 400);
                 }
             } else {
                 \Log::error("SMS Gateway connection error for $phone: Code " . $response->status());
