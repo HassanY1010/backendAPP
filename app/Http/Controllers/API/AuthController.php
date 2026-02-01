@@ -177,12 +177,20 @@ class AuthController extends Controller
      */
     public function sendOtp(Request $request)
     {
-        // 1. Normalize phone (strip +, 00, spaces, then prepend +)
+        // 1. Normalize phone (strip +, 00, spaces)
         $phone = $request->phone;
         $phone = str_replace(['+', ' ', '-'], '', $phone);
         if (str_starts_with($phone, '00')) {
             $phone = substr($phone, 2);
         }
+
+        // Remove leading zero after country code (common mistake: +967077... instead of +96777...)
+        if (str_starts_with($phone, '9670')) {
+            $phone = '967' . substr($phone, 4);
+        } elseif (str_starts_with($phone, '9660')) {
+            $phone = '966' . substr($phone, 4);
+        }
+
         $phone = '+' . $phone; // Alawaeltec strictly requires the + sign
 
         // 2. Validate normalized phone (+ sign then 12 digits for Yemen/Saudi)
@@ -227,21 +235,37 @@ class AuthController extends Controller
                 ]);
             }
 
-            $response = \Illuminate\Support\Facades\Http::get($gatewayUrl, [
-                'orgName' => $org,
-                'userName' => $apiUser,
-                'password' => $pass,
-                'mobileNo' => $phone,
-                'text' => $message,
-                'coding' => '2',
-            ]);
+            // Send SMS with retry logic and explicit timeout
+            $response = \Illuminate\Support\Facades\Http::timeout(15)
+                ->retry(2, 500) // Retry up to 2 times with 500ms delay
+                ->get($gatewayUrl, [
+                    'orgName' => $org,
+                    'userName' => $apiUser,
+                    'password' => $pass,
+                    'mobileNo' => $phone,
+                    'text' => $message,
+                    'coding' => '2',
+                ]);
+
+            $responseBody = $response->body();
 
             if ($response->successful()) {
-                \Log::info("SMS Success for $phone: " . $response->body());
+                // Check if the response actually indicates success (Alawaeltec returns 1701 for success)
+                if (str_contains($responseBody, '1701') || str_contains($responseBody, 'Success') || str_contains($responseBody, 'OK')) {
+                    \Log::info("SMS Success for $phone: " . $responseBody);
+                } else {
+                    \Log::error("SMS Gateway logic error for $phone: " . $responseBody);
+                    // If we get a known error like balance or auth, we should tell the user
+                    return response()->json([
+                        'message' => 'تعذر إرسال الرمز حالياً، يرجى المحاولة مرة أخرى بعد قليل.',
+                        'status' => 'gateway_refused',
+                        'detail' => $responseBody
+                    ], 502);
+                }
             } else {
-                \Log::error("SMS Gateway Error for $phone (Status {$response->status()}): " . $response->body());
+                \Log::error("SMS Gateway HTTP Error for $phone (Status {$response->status()}): " . $responseBody);
                 return response()->json([
-                    'message' => 'SMS gateway returned an error. Please contact support.',
+                    'message' => 'بوابة الرسائل غير متاحة حالياً. يرجى التواصل مع الدعم.',
                     'status' => 'gateway_error',
                     'detail' => $response->status()
                 ], 502);

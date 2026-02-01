@@ -34,7 +34,7 @@ Route::get('/test-image-url', function () {
 
 // Auth Routes with Rate Limiting
 Route::prefix('v1')->group(function () {
-    Route::middleware('throttle:5,1')->group(function () {
+    Route::middleware('throttle:10,1')->group(function () {
         Route::post('/login', [AuthController::class, 'login']);
         Route::post('/guest-login', [AuthController::class, 'guestLogin']);
         Route::post('/auth/send-otp', [AuthController::class, 'sendOtp']);
