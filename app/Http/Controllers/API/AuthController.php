@@ -255,22 +255,17 @@ class AuthController extends Controller
                     \Log::info("SMS Success for $phone: " . $responseBody);
                 } else {
                     \Log::error("SMS Gateway logic error for $phone: " . $responseBody);
-                    // If we get a known error like balance or auth, we should tell the user
                     return response()->json([
-                        'message' => 'تعذر إرسال الرمز حالياً، يرجى المحاولة مرة أخرى بعد قليل.',
-                        'status' => 'gateway_refused',
-                        'detail' => $responseBody
-                    ], 502);
+                        'message' => 'تعذر إرسال الرمز حالياً، يرجى التأكد من صحة الرقم أو المحاولة لاحقاً.',
+                        'gateway_response' => $responseBody // Useful for debugging in dev
+                    ], 400); // Using 400 (Bad Request) instead of 5xx to avoid technical error pages in app
                 }
             } else {
-                \Log::error("SMS Gateway HTTP Error for $phone (Status {$response->status()}): " . $responseBody);
+                \Log::error("SMS Gateway connection error for $phone: Code " . $response->status());
                 return response()->json([
-                    'message' => 'بوابة الرسائل غير متاحة حالياً. يرجى التواصل مع الدعم.',
-                    'status' => 'gateway_error',
-                    'detail' => $response->status()
-                ], 502);
+                    'message' => 'بوابة الرسائل غير متوفرة حالياً، يرجى المحاولة مرة أخرى.',
+                ], 503);
             }
-
         } catch (\Exception $e) {
             \Log::error("SMS Exception for $phone: " . $e->getMessage());
             return response()->json([
@@ -299,9 +294,19 @@ class AuthController extends Controller
         // Normalize phone to match the format stored in sendOtp
         $phone = $request->phone;
         $phone = str_replace(['+', ' ', '-'], '', $phone);
+
         if (str_starts_with($phone, '00')) {
             $phone = substr($phone, 2);
         }
+
+        // Match sendOtp normalization: Remove leading zero after country code (e.g. +967077... -> +96777...)
+        if (str_starts_with($phone, '967')) {
+            $afterCountry = substr($phone, 3);
+            if (str_starts_with($afterCountry, '0')) {
+                $phone = '967' . substr($afterCountry, 1);
+            }
+        }
+
         $phone = '+' . $phone;
 
         $user = User::where('phone', $phone)->first();
