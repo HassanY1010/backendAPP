@@ -17,7 +17,7 @@ class AdController extends Controller
     public function recent(Request $request)
     {
         $ads = \Illuminate\Support\Facades\Cache::remember('recent_ads', 300, function () {
-            $query = Ad::with(['user', 'category', 'mainImage'])
+            $query = Ad::with(['user', 'category', 'mainImage', 'images'])
                 ->where('status', 'active')
                 ->latest()
                 ->withCount('favoritedBy as likes_count');
@@ -38,7 +38,7 @@ class AdController extends Controller
 
     public function index(Request $request)
     {
-        $query = Ad::with(['user', 'category', 'mainImage'])
+        $query = Ad::with(['user', 'category', 'mainImage', 'images'])
             ->where('status', 'active')
             ->withCount('favoritedBy as likes_count');
 
@@ -83,7 +83,7 @@ class AdController extends Controller
 
     public function show($id)
     {
-        $ad = Ad::with(['user', 'category', 'images', 'customFields.field'])
+        $ad = Ad::with(['user', 'category', 'mainImage', 'images', 'customFields.field'])
             ->findOrFail($id);
 
         $ad->increment('views');
@@ -124,7 +124,7 @@ class AdController extends Controller
             }
         }
 
-        return new AdResource($ad->load(['user', 'category', 'mainImage']));
+        return new AdResource($ad->load(['user', 'category', 'mainImage', 'images']));
     }
 
     public function update(UpdateAdRequest $request, $id)
@@ -177,7 +177,7 @@ class AdController extends Controller
             }
         }
 
-        return new AdResource($ad->refresh());
+        return new AdResource($ad->load(['user', 'category', 'mainImage', 'images']));
     }
 
     public function destroy(Request $request, $id)
