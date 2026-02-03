@@ -111,6 +111,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/ads', [\App\Http\Controllers\API\Admin\AdController::class, 'index']);
             Route::get('/ad/{id}', [\App\Http\Controllers\API\Admin\AdController::class, 'show']);
             Route::post('/ad/{id}/update-status', [\App\Http\Controllers\API\Admin\AdController::class, 'updateStatus']);
+            Route::post('/ad/{id}/activate-featured', [\App\Http\Controllers\API\Admin\AdController::class, 'activateFeatured']);
+            Route::post('/ad/{id}/deactivate-featured', [\App\Http\Controllers\API\Admin\AdController::class, 'deactivateFeatured']);
             Route::delete('/ad/{id}', [\App\Http\Controllers\API\Admin\AdController::class, 'destroy']);
 
             // Categories
