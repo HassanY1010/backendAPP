@@ -13,12 +13,13 @@ class CategoryController extends Controller
     {
         $categories = Category::with('children')
             ->whereNull('parent_id')
+            ->orderBy('sort_order', 'asc')
             ->orderBy('title')
             ->get();
-            
+
         return response()->json($categories);
     }
-    
+
     public function store(Request $request)
     {
         $request->validate([
@@ -41,7 +42,7 @@ class CategoryController extends Controller
     public function update(Request $request, $id)
     {
         $category = Category::findOrFail($id);
-        
+
         $request->validate([
             'title' => 'string|max:255',
             'parent_id' => 'nullable|exists:categories,id',
@@ -58,13 +59,15 @@ class CategoryController extends Controller
         }
 
         if ($request->has('title')) {
-             $category->title = $request->title;
-             $category->slug = Str::slug($request->title) . '-' . $category->id;
+            $category->title = $request->title;
+            $category->slug = Str::slug($request->title) . '-' . $category->id;
         }
-        
-        if ($request->has('icon')) $category->icon = $request->icon;
-        if ($request->has('is_active')) $category->is_active = $request->is_active;
-        
+
+        if ($request->has('icon'))
+            $category->icon = $request->icon;
+        if ($request->has('is_active'))
+            $category->is_active = $request->is_active;
+
         $category->save();
 
         return response()->json(['message' => 'Category updated', 'data' => $category]);
