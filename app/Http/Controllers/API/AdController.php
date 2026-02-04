@@ -19,6 +19,7 @@ class AdController extends Controller
         $ads = \Illuminate\Support\Facades\Cache::remember('recent_ads', 300, function () {
             $query = Ad::with(['user', 'category', 'mainImage', 'images'])
                 ->where('status', 'active')
+                ->orderBy('is_featured', 'desc')
                 ->latest()
                 ->withCount('favoritedBy as likes_count');
 
@@ -76,7 +77,7 @@ class AdController extends Controller
             $query->where('currency', $request->currency);
         }
 
-        $ads = $query->latest()->paginate(10);
+        $ads = $query->orderBy('is_featured', 'desc')->latest()->paginate(10);
 
         return AdResource::collection($ads);
     }
