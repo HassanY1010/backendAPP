@@ -23,6 +23,8 @@ class AdResource extends JsonResource
             'views' => $this->views,
             'contact_phone' => $this->contact_phone,
             'contact_whatsapp' => $this->contact_whatsapp,
+            'is_featured' => (bool) ($this->is_featured ?? false),
+            'featured_until' => $this->featured_until,
             'created_at' => $this->created_at,
             'user' => new UserResource($this->whenLoaded('user')),
             'category' => $this->whenLoaded('category', function () {
