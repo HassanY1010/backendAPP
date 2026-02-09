@@ -50,6 +50,11 @@ class AdController extends Controller
             $query->where('location', 'like', "%{$request->location}%");
         }
 
+        // Exclude featured ads if requested
+        if ($request->has('exclude_featured') && $request->exclude_featured) {
+            $query->where('is_featured', false);
+        }
+
         // Sort
         $sort = $request->get('sort', 'latest');
         if ($sort === 'cheapest') {
