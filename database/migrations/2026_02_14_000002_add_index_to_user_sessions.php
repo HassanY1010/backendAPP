@@ -12,7 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('user_sessions', function (Blueprint $table) {
-            $table->index(['user_id', 'logout_at']);
+            $existingIndices = collect(Schema::getIndexes('user_sessions'))->pluck('name')->toArray();
+            if (!in_array('user_sessions_user_id_logout_at_index', $existingIndices)) {
+                $table->index(['user_id', 'logout_at']);
+            }
         });
     }
 

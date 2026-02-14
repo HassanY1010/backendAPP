@@ -12,12 +12,26 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('ads', function (Blueprint $table) {
-            $table->index('price');
-            $table->index('currency');
-            $table->index('is_featured');
-            $table->index('is_urgent');
-            $table->index('is_premium');
-            $table->index(['status', 'created_at']);
+            $existingIndices = collect(Schema::getIndexes('ads'))->pluck('name')->toArray();
+
+            if (!in_array('ads_price_index', $existingIndices)) {
+                $table->index('price');
+            }
+            if (!in_array('ads_currency_index', $existingIndices)) {
+                $table->index('currency');
+            }
+            if (!in_array('ads_is_featured_index', $existingIndices)) {
+                $table->index('is_featured');
+            }
+            if (!in_array('ads_is_urgent_index', $existingIndices)) {
+                $table->index('is_urgent');
+            }
+            if (!in_array('ads_is_premium_index', $existingIndices)) {
+                $table->index('is_premium');
+            }
+            if (!in_array('ads_status_created_at_index', $existingIndices)) {
+                $table->index(['status', 'created_at']);
+            }
         });
     }
 
