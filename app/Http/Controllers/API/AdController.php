@@ -19,7 +19,7 @@ class AdController extends Controller
         $cacheKey = 'ads_list_' . md5(json_encode($request->all()));
 
         $ads = \Illuminate\Support\Facades\Cache::remember($cacheKey, 600, function () use ($request) {
-            $query = Ad::with(['user', 'category', 'mainImage'])
+            $query = Ad::with(['user', 'category', 'images', 'mainImage'])
                 ->where('status', 'active');
 
             // Search
@@ -95,7 +95,7 @@ class AdController extends Controller
     {
         // Cache the base featured ads (without user-specific likes)
         $ads = \Illuminate\Support\Facades\Cache::remember('featured_ads_base', 300, function () {
-            return Ad::with(['user', 'category', 'mainImage'])
+            return Ad::with(['user', 'category', 'images', 'mainImage'])
             ->where('status', 'active')
             ->where('is_featured', true)
             ->where(function ($q) {
@@ -195,7 +195,7 @@ class AdController extends Controller
 
             DB::commit();
 
-            return new AdResource($ad->load('images'));
+            return new AdResource($ad->load(['images', 'mainImage', 'user', 'category']));
         }
         catch (\Exception $e) {
             DB::rollBack();
@@ -206,7 +206,7 @@ class AdController extends Controller
 
     public function show($id)
     {
-        $ad = Ad::with(['user', 'category', 'images', 'customFields.field', 'favoritedBy'])
+        $ad = Ad::with(['user', 'category', 'images', 'mainImage', 'customFields.field'])
             ->withCount('favoritedBy as likes_count')
             ->findOrFail($id);
 

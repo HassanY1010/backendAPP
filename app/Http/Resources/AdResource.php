@@ -23,44 +23,46 @@ class AdResource extends JsonResource
             'views' => $this->views,
             'contact_phone' => $this->contact_phone,
             'contact_whatsapp' => $this->contact_whatsapp,
-            'is_featured' => (bool) ($this->is_featured ?? false),
+            'is_featured' => (bool)($this->is_featured ?? false),
             'featured_until' => $this->featured_until,
             'created_at' => $this->created_at,
             'user' => new UserResource($this->whenLoaded('user')),
             'category' => $this->whenLoaded('category', function () {
-                return [
+            return [
                     'id' => $this->category->id,
                     'name' => $this->category->title, // Flutter expects 'name' field
                     'title' => $this->category->title, // Keep for backward compatibility
                 ];
-            }),
+        }),
             'category_id' => $this->category_id, // Include category_id for fallback logic
             'main_image' => $this->whenLoaded('mainImage', function () {
-                return [
+            return [
                     'image_url' => $this->mainImage->image_url,
                     'thumbnail_url' => $this->mainImage->thumbnail_url,
                     'image_path' => $this->mainImage->image_path,
                 ];
-            }),
+        }),
             'images' => $this->whenLoaded('images', function () {
-                return $this->images->map(function ($img) {
+            return $this->images->map(function ($img) {
                     return [
-                        'image_url' => $img->image_url,
-                        'thumbnail_url' => $img->thumbnail_url,
-                        'image_path' => $img->image_path,
-                    ];
-                });
+                            'image_url' => $img->image_url,
+                            'thumbnail_url' => $img->thumbnail_url,
+                            'image_path' => $img->image_path,
+                        ];
+                }
+                )->values()->all();
             }),
-            'is_liked' => (bool) ($this->is_liked ?? false),
-            'likes_count' => (int) ($this->likes_count ?? 0),
+            'is_liked' => (bool)($this->is_liked ?? false),
+            'likes_count' => (int)($this->likes_count ?? 0),
             'custom_fields' => $this->whenLoaded('customFields', function () {
-                return $this->customFields->map(function ($field) {
+            return $this->customFields->map(function ($field) {
                     return [
-                        'name' => $field->field->name ?? '',
-                        'label' => $field->field->label ?? '',
-                        'value' => $field->value,
-                    ];
-                });
+                            'name' => $field->field->name ?? '',
+                            'label' => $field->field->label ?? '',
+                            'value' => $field->value,
+                        ];
+                }
+                );
             }),
         ];
     }
