@@ -15,59 +15,64 @@ class AdController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Ad::with(['user', 'category', 'mainImage', 'images'])
-            ->where('status', 'active');
+        $cacheKey = 'ads_list_' . md5(json_encode($request->all()));
 
-        // Search
-        if ($request->has('search') && $request->search) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('title', 'like', "%{$search}%")
-                    ->orWhere('description', 'like', "%{$search}%");
-            });
-        }
+        $ads = \Illuminate\Support\Facades\Cache::remember($cacheKey, 600, function () use ($request) {
+            $query = Ad::with(['user', 'category', 'mainImage', 'images'])
+                ->where('status', 'active');
 
-        // Filter by category
-        if ($request->has('category_id') && $request->category_id) {
-            $query->where('category_id', $request->category_id);
-        }
+            // Search
+            if ($request->has('search') && $request->search) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                            $q->where('title', 'like', "%{$search}%")
+                                ->orWhere('description', 'like', "%{$search}%");
+                        }
+                        );
+                    }
 
-        // Filter by price range
-        if ($request->has('min_price') && $request->min_price) {
-            $query->where('price', '>=', $request->min_price);
-        }
-        if ($request->has('max_price') && $request->max_price) {
-            $query->where('price', '<=', $request->max_price);
-        }
+                    // Filter by category
+                    if ($request->has('category_id') && $request->category_id) {
+                        $query->where('category_id', $request->category_id);
+                    }
 
-        // Filter by currency
-        if ($request->has('currency') && $request->currency) {
-            $query->where('currency', $request->currency);
-        }
+                    // Filter by price range
+                    if ($request->has('min_price') && $request->min_price) {
+                        $query->where('price', '>=', $request->min_price);
+                    }
+                    if ($request->has('max_price') && $request->max_price) {
+                        $query->where('price', '<=', $request->max_price);
+                    }
 
-        // Filter by location
-        if ($request->has('location') && $request->location) {
-            $query->where('location', 'like', "%{$request->location}%");
-        }
+                    // Filter by currency
+                    if ($request->has('currency') && $request->currency) {
+                        $query->where('currency', $request->currency);
+                    }
 
-        // Exclude featured ads if requested
-        if ($request->has('exclude_featured') && $request->exclude_featured) {
-            $query->where('is_featured', false);
-        }
+                    // Filter by location
+                    if ($request->has('location') && $request->location) {
+                        $query->where('location', 'like', "%{$request->location}%");
+                    }
 
-        // Sort
-        $sort = $request->get('sort', 'latest');
-        if ($sort === 'cheapest') {
-            $query->orderBy('price', 'asc');
-        }
-        elseif ($sort === 'expensive') {
-            $query->orderBy('price', 'desc');
-        }
-        else {
-            $query->latest();
-        }
+                    // Exclude featured ads if requested
+                    if ($request->has('exclude_featured') && $request->exclude_featured) {
+                        $query->where('is_featured', false);
+                    }
 
-        $ads = $query->paginate(20);
+                    // Sort
+                    $sort = $request->get('sort', 'latest');
+                    if ($sort === 'cheapest') {
+                        $query->orderBy('price', 'asc');
+                    }
+                    elseif ($sort === 'expensive') {
+                        $query->orderBy('price', 'desc');
+                    }
+                    else {
+                        $query->latest();
+                    }
+
+                    return $query->paginate(20);
+                });
 
         return AdResource::collection($ads);
     }
@@ -144,11 +149,14 @@ class AdController extends Controller
             // Handle Images
             if ($request->has('images')) {
                 foreach ($request->images as $index => $imagePath) {
-                    AdImage::create([
+                    $adImage = AdImage::create([
                         'ad_id' => $ad->id,
                         'image_path' => $imagePath,
                         'is_main' => $index === 0,
                     ]);
+
+                    // Level 1 Optimization: Background processing
+                    \App\Jobs\ProcessAdImage::dispatch($adImage);
                 }
             }
 
