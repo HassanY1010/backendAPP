@@ -9,7 +9,8 @@ use Illuminate\Http\Request;
 use App\Http\Resources\AdResource;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log; // Import Log for debugging
+use Illuminate\Support\Facades\Log;
+use App\Jobs\ProcessAdImage;
 
 class AdController extends Controller
 {
@@ -156,7 +157,7 @@ class AdController extends Controller
                     ]);
 
                     // Level 1 Optimization: Background processing
-                    \App\Jobs\ProcessAdImage::dispatch($adImage);
+                    ProcessAdImage::dispatch($adImage);
                 }
             }
 
@@ -247,14 +248,14 @@ class AdController extends Controller
         ]);
 
         if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('ads', 'public');
+            $path = $request->file('image')->store('ads', 'supabase');
             // Or store to s3/supabase if configured
             // $path = $request->file('image')->store('ads', 's3');
 
             // Return the path or full URL
             return response()->json([
                 'path' => $path,
-                'url' => Storage::url($path)
+                'url' => Storage::disk('supabase')->url($path)
             ]);
         }
 
