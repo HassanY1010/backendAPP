@@ -14,13 +14,15 @@ class UserController extends Controller
 
         if ($request->has('search')) {
             $search = $request->search;
-            $query->where(function($q) use ($search) {
+            $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%");
+                    ->orWhere('phone', 'like', "%{$search}%");
             });
         }
 
-        $users = $query->latest()->paginate(20);
+        $users = $query->withCount(['followers', 'following', 'ads'])
+            ->latest()
+            ->paginate(20);
 
         return response()->json($users);
     }
@@ -28,7 +30,7 @@ class UserController extends Controller
     public function update(Request $request, $id)
     {
         $user = User::findOrFail($id);
-        
+
         $request->validate([
             'name' => 'string|max:255',
             'phone' => 'string|unique:users,phone,' . $id,
@@ -68,7 +70,7 @@ class UserController extends Controller
     public function destroy($id)
     {
         $user = User::findOrFail($id);
-        
+
         // Prevent deleting yourself
         if ($user->id === auth()->id()) {
             return response()->json(['message' => 'Cannot delete current logged in admin'], 403);

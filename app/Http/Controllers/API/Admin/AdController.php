@@ -10,7 +10,7 @@ class AdController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Ad::with(['user', 'category', 'mainImage']);
+        $query = Ad::with(['user', 'category', 'mainImage'])->withCount('favoritedBy as likes_count');
 
         // Search by title or description
         if ($request->has('search') && $request->search) {

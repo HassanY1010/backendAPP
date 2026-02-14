@@ -9,13 +9,15 @@ use App\Models\Report;
 use App\Models\Category;
 use App\Models\UserSession;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class StatsController extends Controller
 {
     public function index()
     {
         try {
-            return response()->json([
+            $stats = Cache::remember('admin_dashboard_stats', 300, function () {
+                return [
                 // Users Statistics
                 'total_users' => User::count(),
                 'active_users' => User::where('is_active', true)->count(),
@@ -50,10 +52,14 @@ class StatsController extends Controller
                 'parent_categories' => Category::whereNull('parent_id')->count(),
 
                 // Sessions Statistics
-                'active_sessions' => UserSession::count() > 0 ? UserSession::whereNull('logout_at')->count() : 0,
+                'active_sessions' => UserSession::count() > 0 ?UserSession::whereNull('logout_at')->count() : 0,
                 'total_sessions' => UserSession::count(),
-            ]);
-        } catch (\Exception $e) {
+                ];
+            });
+
+            return response()->json($stats);
+        }
+        catch (\Exception $e) {
             // Return zeros if tables are missing to avoid crashing the frontend
             return response()->json([
                 'total_users' => 0,
