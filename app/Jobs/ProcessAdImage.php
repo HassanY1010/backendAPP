@@ -71,7 +71,7 @@ class ProcessAdImage implements ShouldQueue
 
         }
         catch (\Exception $e) {
-            \Log::error('ProcessAdImage Failed: ' . $e->getMessage());
+            Log::error('ProcessAdImage Failed: ' . $e->getMessage());
         // Optionally re-throw to retry
         }
     }

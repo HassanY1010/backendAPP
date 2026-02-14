@@ -19,7 +19,7 @@ class AdController extends Controller
         $cacheKey = 'ads_list_' . md5(json_encode($request->all()));
 
         $ads = \Illuminate\Support\Facades\Cache::remember($cacheKey, 600, function () use ($request) {
-            $query = Ad::with(['user', 'category', 'mainImage', 'images'])
+            $query = Ad::with(['user', 'category', 'mainImage'])
                 ->where('status', 'active');
 
             // Search
@@ -75,34 +75,52 @@ class AdController extends Controller
                     return $query->paginate(20);
                 });
 
+        // Add user-specific state outside the cache
+        if (auth('sanctum')->check()) {
+            $userId = auth('sanctum')->id();
+            $likedAdIds = \App\Models\Favorite::where('user_id', $userId)
+                ->whereIn('ad_id', $ads->pluck('id'))
+                ->pluck('ad_id')
+                ->toArray();
+
+            foreach ($ads as $ad) {
+                $ad->is_liked = in_array($ad->id, $likedAdIds);
+            }
+        }
+
         return AdResource::collection($ads);
     }
 
     public function featured(Request $request)
     {
-        // Cache featured ads for 5 minutes
-        $ads = \Illuminate\Support\Facades\Cache::remember('featured_ads', 300, function () {
-            $query = Ad::with(['user', 'category', 'mainImage', 'images'])
-                ->where('status', 'active')
-                ->where('is_featured', true)
-                ->where(function ($q) {
-                $q->whereNull('featured_until')
-                    ->orWhere('featured_until', '>', now());
-            }
-            )
-                ->latest()
-                ->withCount('favoritedBy as likes_count'); // Assuming you have a likes relationship
-
-            if (auth('sanctum')->check()) {
-                $query->withExists([
-                    'favoritedBy as is_liked' => function ($q) {
-                    $q->where('user_id', auth('sanctum')->id());
+        // Cache the base featured ads (without user-specific likes)
+        $ads = \Illuminate\Support\Facades\Cache::remember('featured_ads_base', 300, function () {
+            return Ad::with(['user', 'category', 'mainImage'])
+            ->where('status', 'active')
+            ->where('is_featured', true)
+            ->where(function ($q) {
+                    $q->whereNull('featured_until')
+                        ->orWhere('featured_until', '>', now());
                 }
-                ]);
-            }
+                )
+                ->latest()
+                ->withCount('favoritedBy as likes_count')
+                ->take(10)
+                ->get();
+            });
 
-            return $query->take(10)->get();
-        });
+        // Add user-specific state outside the cache
+        if (auth('sanctum')->check()) {
+            $userId = auth('sanctum')->id();
+            $likedAdIds = \App\Models\Favorite::where('user_id', $userId)
+                ->whereIn('ad_id', $ads->pluck('id'))
+                ->pluck('ad_id')
+                ->toArray();
+
+            foreach ($ads as $ad) {
+                $ad->is_liked = in_array($ad->id, $likedAdIds);
+            }
+        }
 
         return AdResource::collection($ads);
     }
