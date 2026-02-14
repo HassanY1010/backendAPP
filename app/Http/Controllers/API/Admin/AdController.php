@@ -67,6 +67,8 @@ class AdController extends Controller
             'reject_reason' => $request->reject_reason,
         ]);
 
+        \Illuminate\Support\Facades\Cache::flush();
+
         return response()->json(['message' => 'Ad status updated', 'data' => $ad]);
     }
 
@@ -87,6 +89,8 @@ class AdController extends Controller
             'is_featured' => true,
             'featured_until' => $featuredUntil,
         ]);
+
+        \Illuminate\Support\Facades\Cache::flush();
 
         // Log payment verification in ad metadata if needed
         // You could add a payment_notes field to ads table or use a separate payments table
@@ -110,6 +114,8 @@ class AdController extends Controller
             'is_featured' => false,
             'featured_until' => null,
         ]);
+
+        \Illuminate\Support\Facades\Cache::flush();
 
         return response()->json([
             'message' => 'Featured ad deactivated successfully',

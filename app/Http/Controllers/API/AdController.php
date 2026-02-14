@@ -162,8 +162,11 @@ class AdController extends Controller
                 'location' => $request->location,
                 'contact_phone' => $request->contact_phone,
                 'contact_whatsapp' => $request->contact_whatsapp,
-                'status' => 'pending', // Default status
+                'status' => 'active', // Changed from pending to active for immediate visibility
             ]);
+
+            // Clear cache so new ad appears immediately
+            \Illuminate\Support\Facades\Cache::flush();
 
             // Handle Images
             if ($request->has('images')) {
