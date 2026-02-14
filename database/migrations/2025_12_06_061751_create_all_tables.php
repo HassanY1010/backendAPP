@@ -58,7 +58,7 @@ return new class extends Migration {
             $table->text('address')->nullable();
             $table->decimal('latitude', 10, 8)->nullable();
             $table->decimal('longitude', 11, 8)->nullable();
-            $table->enum('status', ['pending', 'active', 'rejected', 'sold', 'expired', 'inactive'])->default('pending');
+            $table->enum('status', ['pending', 'active', 'rejected', 'sold', 'expired', 'inactive'])->default('active');
             $table->integer('views')->default(0);
             $table->boolean('is_featured')->default(false);
             $table->boolean('is_urgent')->default(false);
@@ -231,8 +231,8 @@ return new class extends Migration {
             $table->boolean('auto_renew')->default(false);
             $table->timestamps();
 
-            // Although plans.id is INT, we can typically rely on the integer type in SQLite/MySQL. 
-            // In strict mode, we should match types. plans is increments() -> unsigned integer.
+        // Although plans.id is INT, we can typically rely on the integer type in SQLite/MySQL. 
+        // In strict mode, we should match types. plans is increments() -> unsigned integer.
         });
 
         // 16. locations
