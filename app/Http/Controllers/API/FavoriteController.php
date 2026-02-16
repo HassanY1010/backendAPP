@@ -19,7 +19,8 @@ class FavoriteController extends Controller
         if ($favorite) {
             $favorite->delete();
             return response()->json(['message' => 'Removed from favorites', 'is_favorited' => false]);
-        } else {
+        }
+        else {
             Favorite::create([
                 'user_id' => $user->id,
                 'ad_id' => $ad_id,
@@ -32,8 +33,14 @@ class FavoriteController extends Controller
     public function index(Request $request)
     {
         $favorites = $request->user()->favorites()
-            ->with(['mainImage', 'images']) // detailed relationship
+            ->with(['user', 'category', 'mainImage', 'images'])
+            ->latest('favorites.created_at') // Buy default sort by when they were liked
             ->paginate(20);
+
+        // Since we are fetching favorites, is_liked is always true
+        foreach ($favorites as $ad) {
+            $ad->is_liked = true;
+        }
 
         return \App\Http\Resources\AdResource::collection($favorites);
     }

@@ -30,7 +30,8 @@ class OtherCategorySeeder extends Seeder
             ]);
 
             $this->command->info('✅ "Other Category" (سلعة أخرى) created successfully!');
-        } else {
+        }
+        else {
             $this->command->info('ℹ️  "Other Category" already exists.');
         }
     }

@@ -45,15 +45,17 @@ class AdResource extends JsonResource
             'images' => $this->whenLoaded('images', function () {
             return $this->images->map(function ($img) {
                     return [
+                            'id' => $img->id,
                             'image_url' => $img->image_url,
                             'thumbnail_url' => $img->thumbnail_url,
                             'image_path' => $img->image_path,
+                            'is_main' => (bool)$img->is_main,
                         ];
                 }
-                )->values()->all();
+                );
             }),
             'is_liked' => (bool)($this->is_liked ?? false),
-            'likes_count' => (int)($this->likes_count ?? 0),
+            'likes_count' => (int)($this->likes_count ?? $this->favorited_by_count ?? 0),
             'custom_fields' => $this->whenLoaded('customFields', function () {
             return $this->customFields->map(function ($field) {
                     return [
