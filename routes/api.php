@@ -137,8 +137,10 @@ Route::prefix('v1')->group(function () {
             // Public Routes
             Route::get('/ads/featured', [AdController::class , 'featured']);
             Route::get('/ads/recent', [AdController::class , 'recent']); // Top 4 recent ads
+            Route::get('/ads/suggest', [AdController::class , 'suggest']);
             Route::get('/categories', [CategoryController::class , 'index']);
             Route::get('/ads', [AdController::class , 'index']);
             Route::get('/ads/{id}', [AdController::class , 'show']);
             Route::get('/ads/{id}/comments', [\App\Http\Controllers\CommentController::class , 'index']);
-            Route::get('/users/{id}/profile', [\App\Http\Controllers\API\AuthController::class , 'publicProfile']);        });
+            Route::get('/users/{id}/profile', [\App\Http\Controllers\API\AuthController::class , 'publicProfile']);
+        });
