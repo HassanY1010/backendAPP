@@ -34,7 +34,7 @@ class FavoriteController extends Controller
     {
         $favorites = $request->user()->favorites()
             ->with(['user', 'category', 'mainImage', 'images'])
-            ->latest('favorites.created_at') // Buy default sort by when they were liked
+            ->orderByPivot('created_at', 'desc')
             ->paginate(20);
 
         // Since we are fetching favorites, is_liked is always true

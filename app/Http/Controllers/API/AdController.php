@@ -31,7 +31,7 @@ class AdController extends Controller
                                 ->orWhere('description', 'like', "%{$search}%")
                                 ->orWhere('location', 'like', "%{$search}%")
                                 ->orWhereHas('category', function ($cq) use ($search) {
-                        $cq->where('name', 'like', "%{$search}%");
+                        $cq->where('title', 'like', "%{$search}%");
                     }
                     );
                 }
@@ -302,7 +302,7 @@ class AdController extends Controller
                 ->orWhere('title', 'like', "%{$search}%")
                 ->orWhere('description', 'like', "%{$search}%")
                 ->orWhereHas('category', function ($cq) use ($search) {
-                $cq->where('name', 'like', "%{$search}%");
+                $cq->where('title', 'like', "%{$search}%");
             }
             );
         })

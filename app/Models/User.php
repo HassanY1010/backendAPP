@@ -105,20 +105,21 @@ class User extends Authenticatable
         static::deleting(function ($user) {
             // Delete associated ads (this will trigger Ad model's deleting event to clean images etc.)
             $user->ads()->each(function ($ad) {
-                $ad->delete();
+                    $ad->delete();
+                }
+                );
+
+                // Delete physical avatar file
+                if ($user->avatar) {
+                    \Illuminate\Support\Facades\Storage::disk('supabase_avatars')->delete($user->avatar);
+                }
+
+                // Delete comments, messages, etc.
+                $user->comments()->delete();
+                $user->sentMessages()->delete();
+                $user->receivedMessages()->delete();
+                $user->favorites()->detach(); // Clean up pivot table
             });
-
-            // Delete physical avatar file
-            if ($user->avatar) {
-                \Illuminate\Support\Facades\Storage::disk('supabase_avatars')->delete($user->avatar);
-            }
-
-            // Delete comments, messages, etc.
-            $user->comments()->delete();
-            $user->sentMessages()->delete();
-            $user->receivedMessages()->delete();
-            $user->favorites()->detach(); // Clean up pivot table
-        });
     }
 
     public function ads()
@@ -128,7 +129,7 @@ class User extends Authenticatable
 
     public function favorites()
     {
-        return $this->belongsToMany(Ad::class, 'favorites', 'user_id', 'ad_id');
+        return $this->belongsToMany(Ad::class , 'favorites', 'user_id', 'ad_id')->withPivot('created_at');
     }
 
     public function comments()
@@ -138,26 +139,26 @@ class User extends Authenticatable
 
     public function followers()
     {
-        return $this->belongsToMany(User::class, 'followers', 'following_id', 'follower_id');
+        return $this->belongsToMany(User::class , 'followers', 'following_id', 'follower_id');
     }
 
     public function following()
     {
-        return $this->belongsToMany(User::class, 'followers', 'follower_id', 'following_id');
+        return $this->belongsToMany(User::class , 'followers', 'follower_id', 'following_id');
     }
 
     public function sentMessages()
     {
-        return $this->hasMany(Message::class, 'sender_id');
+        return $this->hasMany(Message::class , 'sender_id');
     }
 
     public function receivedMessages()
     {
-        return $this->hasMany(Message::class, 'receiver_id');
+        return $this->hasMany(Message::class , 'receiver_id');
     }
 
     public function reviewsReceived()
     {
-        return $this->hasMany(Review::class, 'reviewed_id');
+        return $this->hasMany(Review::class , 'reviewed_id');
     }
 }
