@@ -86,6 +86,11 @@ Route::prefix('v1')->group(function () {
                 Route::post('/messages/send', [MessageController::class , 'send']);
                 Route::get('/messages/fetch/{userId}/{otherUserId}', [MessageController::class , 'fetch']);
                 Route::get('/messages/conversations', [MessageController::class , 'conversations']);
+                Route::delete('/messages/conversations/{id}', [MessageController::class , 'deleteConversation']);
+
+                // Blocking
+                Route::post('/users/{id}/block', [MessageController::class , 'blockUser']);
+                Route::post('/users/{id}/unblock', [MessageController::class , 'unblockUser']);
 
                 // Notifications
                 Route::get('/notifications', [NotificationController::class , 'index']);

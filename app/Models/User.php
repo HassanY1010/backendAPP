@@ -161,4 +161,14 @@ class User extends Authenticatable
     {
         return $this->hasMany(Review::class , 'reviewed_id');
     }
+
+    public function blockedUsers()
+    {
+        return $this->belongsToMany(User::class , 'blocked_users', 'user_id', 'blocked_id')->withTimestamps();
+    }
+
+    public function blockedBy()
+    {
+        return $this->belongsToMany(User::class , 'blocked_users', 'blocked_id', 'user_id')->withTimestamps();
+    }
 }
