@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Models\UserSession;
 use App\Http\Resources\UserResource;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
@@ -15,6 +16,8 @@ class ProfileController extends Controller
     public function update(Request $request)
     {
         $user = $request->user();
+        $oldAvatarToDelete = null;
+        $newAvatarPath = null;
 
         $request->validate([
             'name' => 'sometimes|string|max:255',
@@ -39,35 +42,47 @@ class ProfileController extends Controller
 
         if ($request->hasFile('avatar')) {
             $file = $request->file('avatar');
-            $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
-            $path = $filename;
-            $oldAvatar = $user->avatar;
+            $extension = strtolower($file->extension() ?: $file->getClientOriginalExtension() ?: 'jpg');
+            $path = 'avatars/' . Str::uuid() . '.' . $extension;
 
-            $contents = file_get_contents($file->getRealPath());
-            if ($contents === false) {
-                return response()->json(['message' => 'Unable to read uploaded avatar'], 422);
-            }
+            try {
+                $contents = file_get_contents($file->getRealPath());
+                if ($contents === false) {
+                    return response()->json(['message' => 'تعذر قراءة الصورة المرفوعة'], 422);
+                }
 
-            $uploaded = Storage::disk('supabase_avatars')->put($path, $contents, [
-                'visibility' => 'public',
-                'ContentType' => $file->getMimeType() ?: 'image/jpeg',
-            ]);
+                $uploaded = Storage::disk('supabase')->put($path, $contents, [
+                    'visibility' => 'public',
+                    'ContentType' => $file->getMimeType() ?: 'image/jpeg',
+                ]);
 
-            if (!$uploaded) {
-                Log::error('Avatar upload failed', [
+                if (!$uploaded) {
+                    Log::error('Avatar upload failed', [
+                        'user_id' => $user->id,
+                        'filename' => $file->getClientOriginalName(),
+                        'mime' => $file->getMimeType(),
+                        'disk' => 'supabase',
+                        'path' => $path,
+                    ]);
+
+                    return response()->json(['message' => 'فشل رفع الصورة. حاول مرة أخرى'], 500);
+                }
+
+                $oldAvatarToDelete = $user->avatar;
+                $newAvatarPath = $path;
+                $user->avatar = $path;
+            } catch (\Throwable $exception) {
+                Log::error('Avatar upload exception', [
                     'user_id' => $user->id,
                     'filename' => $file->getClientOriginalName(),
                     'mime' => $file->getMimeType(),
+                    'disk' => 'supabase',
+                    'path' => $path,
+                    'exception' => $exception->getMessage(),
                 ]);
 
-                return response()->json(['message' => 'Failed to upload avatar'], 500);
+                return response()->json(['message' => 'فشل رفع الصورة. حاول مرة أخرى'], 500);
             }
-
-            if ($oldAvatar && !Str::startsWith($oldAvatar, ['http://', 'https://']) && $oldAvatar !== $path) {
-                Storage::disk('supabase_avatars')->delete($oldAvatar);
-            }
-
-            $user->avatar = $path;
         }
 
         if ($request->has('name')) {
@@ -83,10 +98,47 @@ class ProfileController extends Controller
 
         $user->save();
 
+        if ($newAvatarPath !== null) {
+            $this->deleteStoredAvatar($oldAvatarToDelete, $newAvatarPath, $user->id);
+        }
+
         return response()->json([
             'message' => 'Profile updated successfully',
             'user' => new UserResource($user->fresh())
         ]);
+    }
+
+    private function deleteStoredAvatar(?string $avatar, string $currentAvatar, int $userId): void
+    {
+        if (
+            !$avatar ||
+            $avatar === $currentAvatar ||
+            Str::startsWith($avatar, ['http://', 'https://'])
+        ) {
+            return;
+        }
+
+        $path = ltrim(Str::replaceStart('public/', '', $avatar), '/');
+
+        try {
+            if (Str::startsWith($path, 'avatars/')) {
+                Storage::disk('supabase')->delete($path);
+                return;
+            }
+
+            if (Storage::disk('public')->exists($path)) {
+                Storage::disk('public')->delete($path);
+                return;
+            }
+
+            Storage::disk('supabase_avatars')->delete($path);
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to delete old avatar', [
+                'user_id' => $userId,
+                'avatar' => $avatar,
+                'exception' => $exception->getMessage(),
+            ]);
+        }
     }
 
     public function destroy(Request $request)
@@ -145,12 +197,28 @@ class ProfileController extends Controller
 
             $favorites = $user->favorites()
                 ->with(['category:id,title', 'mainImage'])
+                ->withCount(['favoritedBy', 'comments'])
                 ->orderByPivot('created_at', 'desc')
                 ->get();
 
             $reviews = $user->reviewsReceived()
                 ->with(['reviewer:id,name', 'ad:id,title'])
                 ->latest()
+                ->get();
+
+            $notifications = $user->notifications()
+                ->latest()
+                ->limit(50)
+                ->get();
+
+            $savedSearches = $user->savedSearches()
+                ->latest()
+                ->limit(50)
+                ->get();
+
+            $sessions = UserSession::where('user_id', $user->id)
+                ->orderByDesc('login_at')
+                ->limit(30)
                 ->get();
 
             $stats = [
@@ -170,6 +238,11 @@ class ProfileController extends Controller
                 'average_rating' => round((float) ($reviews->avg('rating') ?? 0), 2),
                 'notifications_total' => $user->notifications()->count(),
                 'notifications_unread' => $user->notifications()->where('is_read', false)->count(),
+                'saved_searches_count' => $user->savedSearches()->count(),
+                'sessions_count' => UserSession::where('user_id', $user->id)->count(),
+                'active_sessions_count' => UserSession::where('user_id', $user->id)
+                    ->whereNull('logout_at')
+                    ->count(),
                 'joined_date' => $user->created_at->format('Y-m-d'),
             ];
 
@@ -193,6 +266,7 @@ class ProfileController extends Controller
                 'ads' => $ads->map(function ($ad) {
                     return [
                         'id' => $ad->id,
+                        'slug' => $ad->slug,
                         'title' => $ad->title,
                         'description' => $ad->description,
                         'price' => $ad->price,
@@ -221,12 +295,21 @@ class ProfileController extends Controller
                 'favorites' => $favorites->map(function ($ad) {
                     return [
                         'id' => $ad->id,
+                        'slug' => $ad->slug,
                         'title' => $ad->title,
+                        'description' => $ad->description,
                         'price' => $ad->price,
                         'currency' => $ad->currency,
                         'status' => $ad->status,
                         'category' => $ad->category?->title,
                         'location' => $ad->location,
+                        'views' => $ad->views,
+                        'favorites_count' => $ad->favorited_by_count,
+                        'comments_count' => $ad->comments_count,
+                        'is_featured' => $ad->is_featured,
+                        'condition' => $ad->condition,
+                        'created_at' => $ad->created_at?->toIso8601String(),
+                        'updated_at' => $ad->updated_at?->toIso8601String(),
                         'favorited_at' => $ad->pivot?->created_at,
                     ];
                 }),
@@ -238,6 +321,40 @@ class ProfileController extends Controller
                         'ad_title' => $review->ad?->title,
                         'is_approved' => $review->is_approved,
                         'created_at' => $review->created_at->toIso8601String(),
+                    ];
+                }),
+                'notifications' => $notifications->map(function ($notification) {
+                    return [
+                        'id' => $notification->id,
+                        'type' => $notification->type,
+                        'title' => $notification->title,
+                        'message' => $notification->message,
+                        'is_read' => $notification->is_read,
+                        'read_at' => $notification->read_at?->toIso8601String(),
+                        'created_at' => $notification->created_at?->toIso8601String(),
+                    ];
+                }),
+                'saved_searches' => $savedSearches->map(function ($search) {
+                    return [
+                        'id' => $search->id,
+                        'name' => $search->name,
+                        'filters' => $search->filters,
+                        'notify_enabled' => $search->notify_enabled,
+                        'last_notified_at' => $search->last_notified_at?->toIso8601String(),
+                        'created_at' => $search->created_at?->toIso8601String(),
+                        'updated_at' => $search->updated_at?->toIso8601String(),
+                    ];
+                }),
+                'sessions' => $sessions->map(function ($session) {
+                    return [
+                        'id' => $session->id,
+                        'login_at' => $session->login_at?->toIso8601String(),
+                        'logout_at' => $session->logout_at?->toIso8601String(),
+                        'ip_address' => $session->ip_address,
+                        'device_type' => $session->device_type,
+                        'duration_minutes' => $session->duration,
+                        'is_active' => $session->isActive(),
+                        'user_agent' => $session->user_agent,
                     ];
                 }),
                 'exported_at' => now()->toIso8601String(),

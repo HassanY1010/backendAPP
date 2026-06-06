@@ -2,37 +2,27 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\Category;
-use Illuminate\Support\Str;
+use Illuminate\Database\Seeder;
 
 class OtherCategorySeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        // Check if "Other" category already exists
-        $existingCategory = Category::where('slug', 'other')->first();
-
-        if (!$existingCategory) {
-            Category::create([
+        Category::updateOrCreate(
+            ['slug' => 'other'],
+            [
                 'parent_id' => null,
-                'title' => 'سلعة أخرى',
-                'slug' => 'other',
-                'description' => 'قسم خاص للسلع التي لا تندرج تحت الأقسام الأخرى',
-                'icon' => '📦', // Box emoji as icon
-                'image' => null,
-                'color' => '#6B7280', // Gray color to distinguish it
+                'title' => 'أخرى',
+                'description' => 'قسم خاص للسلع والطلبات التي لا تندرج تحت الأقسام الأخرى',
+                'icon' => 'category_rounded',
+                'image' => 'https://images.unsplash.com/photo-1520640023173-50a135e35804?auto=format&fit=crop&w=900&q=80',
+                'color' => '#64748B',
                 'is_active' => true,
-                'sort_order' => 9999, // High number to appear at the end
-            ]);
+                'sort_order' => 9999,
+            ]
+        );
 
-            $this->command->info('✅ "Other Category" (سلعة أخرى) created successfully!');
-        }
-        else {
-            $this->command->info('ℹ️  "Other Category" already exists.');
-        }
+        $this->command?->info('"Other" category is ready.');
     }
 }

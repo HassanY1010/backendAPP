@@ -7,6 +7,10 @@ echo "=== Starting Haraj App ==="
 echo ">>> Running migrations..."
 php artisan migrate --force
 
+# Seed public categories safely. The seeder is idempotent and never truncates.
+echo ">>> Seeding category catalog..."
+php artisan db:seed --class=CategorySeeder --force
+
 # Cache config/routes/views for production performance
 echo ">>> Warming caches..."
 php artisan config:cache

@@ -8,7 +8,9 @@ use App\Models\Category;
 use App\Models\Message;
 use App\Models\Notification;
 use App\Models\Review;
+use App\Models\SavedSearch;
 use App\Models\User;
+use App\Models\UserSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
@@ -353,6 +355,29 @@ class ProductionHardeningTest extends TestCase
             'is_approved' => true,
         ]);
 
+        Notification::create([
+            'user_id' => $user->id,
+            'type' => 'ad',
+            'title' => 'New favorite',
+            'message' => 'Someone added your ad to favorites.',
+            'is_read' => false,
+        ]);
+
+        SavedSearch::create([
+            'user_id' => $user->id,
+            'name' => 'Cars in Sanaa',
+            'filters' => ['category_id' => $category->id, 'location' => 'Sanaa'],
+            'notify_enabled' => true,
+        ]);
+
+        UserSession::create([
+            'user_id' => $user->id,
+            'login_at' => now()->subHour(),
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'Flutter export test',
+            'device_type' => 'Mobile',
+        ]);
+
         Sanctum::actingAs($user, ['user']);
 
         $this->getJson('/api/v1/profile/export')
@@ -363,13 +388,20 @@ class ProductionHardeningTest extends TestCase
             ->assertJsonPath('stats.total_views', 37)
             ->assertJsonPath('stats.total_favorites', 1)
             ->assertJsonPath('stats.reviews_count', 1)
+            ->assertJsonPath('stats.notifications_total', 1)
+            ->assertJsonPath('stats.saved_searches_count', 1)
+            ->assertJsonPath('stats.sessions_count', 1)
             ->assertJsonPath('ads.0.description', 'A detailed export description for the generated PDF.')
             ->assertJsonPath('ads.0.category', 'Cars')
             ->assertJsonPath('ads.0.favorites_count', 1)
             ->assertJsonPath('ads.0.is_featured', true)
             ->assertJsonPath('favorites.0.title', 'Clean sedan')
+            ->assertJsonPath('favorites.0.views', 37)
             ->assertJsonPath('reviews.0.reviewer_name', 'Reviewer User')
-            ->assertJsonPath('reviews.0.comment', 'Excellent seller');
+            ->assertJsonPath('reviews.0.comment', 'Excellent seller')
+            ->assertJsonPath('notifications.0.title', 'New favorite')
+            ->assertJsonPath('saved_searches.0.name', 'Cars in Sanaa')
+            ->assertJsonPath('sessions.0.device_type', 'Mobile');
     }
 
     public function test_ads_index_supports_smart_filters_and_sorting(): void

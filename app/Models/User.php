@@ -125,6 +125,10 @@ class User extends Authenticatable
 
         $path = ltrim(Str::replaceStart('public/', '', $this->avatar), '/');
 
+        if (Str::startsWith($path, 'avatars/')) {
+            return $this->versionedAvatarUrl(Storage::disk('supabase')->url($path));
+        }
+
         if (Storage::disk('public')->exists($path)) {
             return $this->versionedAvatarUrl(Storage::disk('public')->url($path));
         }
@@ -157,7 +161,17 @@ class User extends Authenticatable
 
                 // Delete physical avatar file
                 if ($user->avatar) {
-                    \Illuminate\Support\Facades\Storage::disk('supabase_avatars')->delete($user->avatar);
+                    $avatar = ltrim(Str::replaceStart('public/', '', $user->avatar), '/');
+
+                    if (!Str::startsWith($avatar, ['http://', 'https://'])) {
+                        if (Str::startsWith($avatar, 'avatars/')) {
+                            Storage::disk('supabase')->delete($avatar);
+                        } elseif (Storage::disk('public')->exists($avatar)) {
+                            Storage::disk('public')->delete($avatar);
+                        } else {
+                            Storage::disk('supabase_avatars')->delete($avatar);
+                        }
+                    }
                 }
 
                 // Delete comments, messages, etc.
