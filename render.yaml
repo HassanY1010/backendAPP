@@ -1,0 +1,80 @@
+services:
+  - type: web
+    name: haraj-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_NAME
+        value: "Haraj App"
+      - key: APP_ENV
+        value: production
+      - key: APP_KEY
+        value: base64:Xk2gP9jJd4qW5+pZ8rT3nL6mK9xV2bN1cM4aQ7sR0tY=
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_TIMEZONE
+        value: UTC
+      - key: LOG_LEVEL
+        value: error
+      # Database (Aiven MySQL)
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: mysql-3631c3c9-skjeb13-7647.g.aivencloud.com
+      - key: DB_PORT
+        value: "15813"
+      - key: DB_DATABASE
+        value: defaultdb
+      - key: DB_USERNAME
+        value: avnadmin
+      - key: DB_PASSWORD
+        value: AVNS_vvHDuQvfvYiK9yODm_i
+      - key: MYSQL_ATTR_SSL_CA
+        value: /etc/ssl/certs/aiven-ca.crt
+      # Cache / Queue / Session
+      - key: QUEUE_CONNECTION
+        value: sync
+      - key: CACHE_DRIVER
+        value: file
+      - key: SESSION_DRIVER
+        value: file
+      - key: SESSION_LIFETIME
+        value: "120"
+      - key: FILESYSTEM_DISK
+        value: supabase
+      # Supabase Storage
+      - key: SUPABASE_URL
+        value: https://mcxdxwyrhrabmdlberid.supabase.co
+      - key: SUPABASE_STORAGE_KEY
+        value: f2414377826938715c40c87fc51965ad
+      - key: SUPABASE_STORAGE_SECRET
+        value: 91173da68b6c60dbbbadda26ca32b9a0433f2d9098a59a53d6956a99f1bf041d
+      - key: SUPABASE_STORAGE_ENDPOINT
+        value: https://mcxdxwyrhrabmdlberid.supabase.co/storage/v1/s3
+      - key: SUPABASE_STORAGE_BUCKET
+        value: uploads
+      # Pusher
+      - key: BROADCAST_DRIVER
+        value: pusher
+      - key: PUSHER_APP_ID
+        value: "2088706"
+      - key: PUSHER_APP_KEY
+        value: e4d91eea6f30eee94550
+      - key: PUSHER_APP_SECRET
+        value: d93daddafb2d65f8bffb
+      - key: PUSHER_APP_CLUSTER
+        value: ap2
+      # SMS
+      - key: SMS_GATEWAY_URL
+        value: https://sms.alawaeltec.com/MainServlet
+      - key: SMS_ORG_NAME
+        value: LaqtaApp
+      - key: SMS_USER_NAME
+        value: LaqtaApp
+      - key: SMS_PASSWORD
+        value: LaqtaApp@656779800442311
+      # Admin Token TTL
+      - key: ADMIN_TOKEN_TTL_HOURS
+        value: "8"

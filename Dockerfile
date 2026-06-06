@@ -1,7 +1,9 @@
 FROM php:8.2-fpm-alpine
 
-# Install system dependencies
+# Install system dependencies including nginx and supervisor
 RUN apk add --no-cache \
+    nginx \
+    supervisor \
     git \
     curl \
     libpng-dev \
@@ -44,28 +46,35 @@ RUN { \
 # Install Composer
 COPY --from=composer:2.7 /usr/bin/composer /usr/bin/composer
 
-# Create non-root user
-RUN addgroup -g 1000 -S appgroup && adduser -u 1000 -S appuser -G appgroup
-
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy application files
-COPY --chown=appuser:appgroup . .
+# Copy application files (as root first for installation)
+COPY . .
 
 # Install PHP dependencies (no dev)
 RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress
 
-# Set correct permissions
-RUN chown -R appuser:appgroup /var/www/html/storage /var/www/html/bootstrap/cache \
-    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+# Copy Aiven SSL CA certificate to system trust store
+COPY database/ca-certificate.crt /etc/ssl/certs/aiven-ca.crt
 
-# Switch to non-root user
-USER appuser
+# Setup directories for Laravel
+RUN mkdir -p storage/framework/sessions \
+    storage/framework/views \
+    storage/framework/cache/data \
+    bootstrap/cache \
+    && chmod -R 777 storage bootstrap/cache
 
-EXPOSE 9000
+# Copy nginx configuration
+COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD php-fpm -t || exit 1
+# Copy supervisor configuration  
+COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-CMD ["php-fpm"]
+# Create startup script that runs migrations + cache warmup then starts services
+COPY docker/start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
+
+EXPOSE 8080
+
+CMD ["/usr/local/bin/start.sh"]
