@@ -7,8 +7,8 @@ return [
     'allowed_methods' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
     'allowed_origins' => array_filter(array_map('trim', explode(',', env(
-        'CORS_ALLOWED_ORIGINS',
-        'https://sprightly-gecko-2a0c94.netlify.app'
+        'FRONTEND_URL',
+        env('CORS_ALLOWED_ORIGINS', 'https://app-lo0g0xnpz-hr-s-projects12.vercel.app,http://localhost:5173')
     )))),
 
     'allowed_origins_patterns' => [],
