@@ -6,6 +6,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -90,6 +92,22 @@ class User extends Authenticatable
         return $this->last_activity_at && $this->last_activity_at->diffInMinutes(now()) < 5;
     }
 
+    public function scopeWithTrustMetrics($query)
+    {
+        return $query
+            ->withCount([
+                'followers',
+                'following',
+                'ads',
+                'ads as active_ads_count' => fn ($q) => $q->where('status', 'active'),
+                'ads as successful_ads_count' => fn ($q) => $q->where('status', 'sold'),
+                'reviewsReceived as ratings_count' => fn ($q) => $q->where('is_approved', true),
+            ])
+            ->withAvg([
+                'reviewsReceived as rating' => fn ($q) => $q->where('is_approved', true),
+            ], 'rating');
+    }
+
     /**
      * Get the full URL for the avatar.
      *
@@ -97,13 +115,32 @@ class User extends Authenticatable
      */
     public function getAvatarUrlAttribute()
     {
-        if (!$this->avatar)
+        if (!$this->avatar) {
             return null;
+        }
 
-        // Manually construct Supabase public URL for avatars
-        $supabaseUrl = env('SUPABASE_URL');
-        $bucket = 'avatars';
-        return "{$supabaseUrl}/storage/v1/object/public/{$bucket}/{$this->avatar}";
+        if (Str::startsWith($this->avatar, ['http://', 'https://'])) {
+            return $this->versionedAvatarUrl($this->avatar);
+        }
+
+        $path = ltrim(Str::replaceStart('public/', '', $this->avatar), '/');
+
+        if (Storage::disk('public')->exists($path)) {
+            return $this->versionedAvatarUrl(Storage::disk('public')->url($path));
+        }
+
+        return $this->versionedAvatarUrl(Storage::disk('supabase_avatars')->url($path));
+    }
+
+    private function versionedAvatarUrl(string $url): string
+    {
+        if (!$this->updated_at) {
+            return $url;
+        }
+
+        $separator = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $separator . 'v=' . $this->updated_at->timestamp;
     }
 
     /**
@@ -139,6 +176,11 @@ class User extends Authenticatable
     public function favorites()
     {
         return $this->belongsToMany(Ad::class , 'favorites', 'user_id', 'ad_id')->withPivot('created_at');
+    }
+
+    public function savedSearches()
+    {
+        return $this->hasMany(SavedSearch::class);
     }
 
     public function comments()

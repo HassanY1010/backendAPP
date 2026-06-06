@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Http\Resources\UserResource;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -37,26 +38,34 @@ class ProfileController extends Controller
         }
 
         if ($request->hasFile('avatar')) {
-            // Delete old avatar if exists
-            if ($user->avatar) {
-                // Check if it's on supabase or local (for migration phase, we might want to try deleting from both or just assume supabase going forward)
-                // For a clean cutover, we'll delete from supabase. If old files are local, they'll just be orphaned or we can add a check.
-                // Assuming we want to support the new system:
-                if (Storage::disk('supabase_avatars')->exists($user->avatar)) {
-                    Storage::disk('supabase_avatars')->delete($user->avatar);
-                }
-            }
-
-            // Store new avatar in Supabase
-            // We can also resize here if we want, but for now direct upload is fine or basic resize
             $file = $request->file('avatar');
             $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
-            $path = $filename; // Store at root of avatars bucket
+            $path = $filename;
+            $oldAvatar = $user->avatar;
 
-            // Upload to Supabase public bucket
-            $stream = fopen($file->getRealPath(), 'r+');
-            Storage::disk('supabase_avatars')->put($path, $stream, 'public');
-            fclose($stream);
+            $contents = file_get_contents($file->getRealPath());
+            if ($contents === false) {
+                return response()->json(['message' => 'Unable to read uploaded avatar'], 422);
+            }
+
+            $uploaded = Storage::disk('supabase_avatars')->put($path, $contents, [
+                'visibility' => 'public',
+                'ContentType' => $file->getMimeType() ?: 'image/jpeg',
+            ]);
+
+            if (!$uploaded) {
+                Log::error('Avatar upload failed', [
+                    'user_id' => $user->id,
+                    'filename' => $file->getClientOriginalName(),
+                    'mime' => $file->getMimeType(),
+                ]);
+
+                return response()->json(['message' => 'Failed to upload avatar'], 500);
+            }
+
+            if ($oldAvatar && !Str::startsWith($oldAvatar, ['http://', 'https://']) && $oldAvatar !== $path) {
+                Storage::disk('supabase_avatars')->delete($oldAvatar);
+            }
 
             $user->avatar = $path;
         }
@@ -76,7 +85,7 @@ class ProfileController extends Controller
 
         return response()->json([
             'message' => 'Profile updated successfully',
-            'user' => new \App\Http\Resources\UserResource($user)
+            'user' => new UserResource($user->fresh())
         ]);
     }
 
@@ -128,50 +137,106 @@ class ProfileController extends Controller
         try {
             $user = $request->user();
 
-            // Eager load everything needed for the report
-            $user->load([
-                'ads' => function ($q) {
-                    $q->orderBy('created_at', 'desc');
-                },
-                'reviewsReceived',
-                'favorites'
-            ]);
+            $ads = $user->ads()
+                ->with(['category:id,title', 'images'])
+                ->withCount(['favoritedBy', 'comments'])
+                ->latest()
+                ->get();
 
-            // Fetch stats if available via a service or recalculate
+            $favorites = $user->favorites()
+                ->with(['category:id,title', 'mainImage'])
+                ->orderByPivot('created_at', 'desc')
+                ->get();
+
+            $reviews = $user->reviewsReceived()
+                ->with(['reviewer:id,name', 'ad:id,title'])
+                ->latest()
+                ->get();
+
             $stats = [
-                'total_ads' => $user->ads->count(),
-                'active_ads' => $user->ads->where('status', 'active')->count(),
-                'sold_ads' => $user->ads->where('status', 'sold')->count(),
-                'total_favorites' => $user->favorites->count(),
-                'reviews_count' => $user->reviewsReceived->count(),
-                'average_rating' => $user->reviewsReceived->avg('rating') ?? 0,
+                'total_ads' => $ads->count(),
+                'active_ads' => $ads->where('status', 'active')->count(),
+                'pending_ads' => $ads->where('status', 'pending')->count(),
+                'sold_ads' => $ads->where('status', 'sold')->count(),
+                'rejected_ads' => $ads->where('status', 'rejected')->count(),
+                'expired_ads' => $ads->where('status', 'expired')->count(),
+                'inactive_ads' => $ads->where('status', 'inactive')->count(),
+                'featured_ads' => $ads->where('is_featured', true)->count(),
+                'total_views' => (int) $ads->sum('views'),
+                'total_favorites' => $favorites->count(),
+                'followers_count' => $user->followers()->count(),
+                'following_count' => $user->following()->count(),
+                'reviews_count' => $reviews->count(),
+                'average_rating' => round((float) ($reviews->avg('rating') ?? 0), 2),
+                'notifications_total' => $user->notifications()->count(),
+                'notifications_unread' => $user->notifications()->where('is_read', false)->count(),
                 'joined_date' => $user->created_at->format('Y-m-d'),
             ];
 
             return response()->json([
                 'user' => [
+                    'id' => $user->id,
                     'name' => $user->name,
                     'phone' => $user->phone,
                     'email' => $user->email,
+                    'role' => $user->role,
+                    'is_active' => $user->is_active,
+                    'show_phone_number' => $user->show_phone_number,
+                    'accepts_notifications' => $user->accepts_notifications,
+                    'phone_verified_at' => $user->phone_verified_at?->toIso8601String(),
                     'created_at' => $user->created_at->toIso8601String(),
+                    'updated_at' => $user->updated_at?->toIso8601String(),
+                    'last_login_at' => $user->last_login_at?->toIso8601String(),
                     'avatar_url' => $user->avatar_url,
                 ],
                 'stats' => $stats,
-                'ads' => $user->ads->map(function ($ad) {
+                'ads' => $ads->map(function ($ad) {
+                    return [
+                        'id' => $ad->id,
+                        'title' => $ad->title,
+                        'description' => $ad->description,
+                        'price' => $ad->price,
+                        'currency' => $ad->currency,
+                        'status' => $ad->status,
+                        'category' => $ad->category?->title,
+                        'location' => $ad->location,
+                        'address' => $ad->address,
+                        'views' => $ad->views,
+                        'favorites_count' => $ad->favorited_by_count,
+                        'comments_count' => $ad->comments_count,
+                        'images_count' => $ad->images->count(),
+                        'is_featured' => $ad->is_featured,
+                        'is_urgent' => $ad->is_urgent,
+                        'is_premium' => $ad->is_premium,
+                        'is_negotiable' => $ad->is_negotiable,
+                        'condition' => $ad->condition,
+                        'contact_phone' => $ad->contact_phone,
+                        'contact_whatsapp' => $ad->contact_whatsapp,
+                        'expires_at' => $ad->expires_at?->toIso8601String(),
+                        'featured_until' => $ad->featured_until?->toIso8601String(),
+                        'created_at' => $ad->created_at->toIso8601String(),
+                        'updated_at' => $ad->updated_at?->toIso8601String(),
+                    ];
+                }),
+                'favorites' => $favorites->map(function ($ad) {
                     return [
                         'id' => $ad->id,
                         'title' => $ad->title,
                         'price' => $ad->price,
                         'currency' => $ad->currency,
                         'status' => $ad->status,
-                        'created_at' => $ad->created_at->toIso8601String(),
-                        'views' => $ad->views,
+                        'category' => $ad->category?->title,
+                        'location' => $ad->location,
+                        'favorited_at' => $ad->pivot?->created_at,
                     ];
                 }),
-                'reviews' => $user->reviewsReceived->map(function ($review) {
+                'reviews' => $reviews->map(function ($review) {
                     return [
                         'rating' => $review->rating,
                         'comment' => $review->comment,
+                        'reviewer_name' => $review->reviewer?->name,
+                        'ad_title' => $review->ad?->title,
+                        'is_approved' => $review->is_approved,
                         'created_at' => $review->created_at->toIso8601String(),
                     ];
                 }),

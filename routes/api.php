@@ -11,6 +11,7 @@ use App\Http\Controllers\API\ReportController;
 use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\AppReviewController;
 use App\Http\Controllers\API\ProfileController;
+use App\Http\Controllers\API\SavedSearchController;
 
 Route::get('/health', fn () => response()->json(['status' => 'ok']));
 
@@ -93,6 +94,12 @@ Route::prefix('v1')->group(function () {
                 Route::post('/notifications/{id}/read', [NotificationController::class , 'markAsRead']);
                 Route::post('/notifications/read-all', [NotificationController::class , 'markAllAsRead']);
                 Route::delete('/notifications/{id}', [NotificationController::class , 'destroy']);
+
+                // Saved Searches
+                Route::get('/saved-searches', [SavedSearchController::class, 'index']);
+                Route::post('/saved-searches', [SavedSearchController::class, 'store'])->middleware('throttle:20,1');
+                Route::patch('/saved-searches/{savedSearch}', [SavedSearchController::class, 'update'])->middleware('throttle:30,1');
+                Route::delete('/saved-searches/{savedSearch}', [SavedSearchController::class, 'destroy'])->middleware('throttle:30,1');
 
                 // Reports
                 Route::post('/report', [ReportController::class, 'store'])

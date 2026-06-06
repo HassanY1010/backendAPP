@@ -3,10 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\Conversation;
+use App\Models\Ad;
+use App\Models\Category;
 use App\Models\Message;
 use App\Models\Notification;
+use App\Models\Review;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -154,6 +158,70 @@ class ProductionHardeningTest extends TestCase
             ->assertJsonPath('user.phone', null);
     }
 
+    public function test_public_profile_exposes_trust_badges_and_metrics(): void
+    {
+        $seller = User::factory()->create([
+            'phone_verified_at' => now(),
+            'last_activity_at' => now(),
+        ]);
+        $reviewer = User::factory()->create();
+        $category = Category::create([
+            'title' => 'Cars',
+            'slug' => 'cars',
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+
+        Ad::create([
+            'user_id' => $seller->id,
+            'category_id' => $category->id,
+            'title' => 'Active car',
+            'slug' => 'active-car',
+            'description' => 'A clean car',
+            'price' => 10000,
+            'currency' => 'SAR',
+            'location' => 'Riyadh',
+            'status' => 'active',
+        ]);
+
+        $soldAd = Ad::create([
+            'user_id' => $seller->id,
+            'category_id' => $category->id,
+            'title' => 'Sold car',
+            'slug' => 'sold-car',
+            'description' => 'Sold successfully',
+            'price' => 9000,
+            'currency' => 'SAR',
+            'location' => 'Riyadh',
+            'status' => 'sold',
+        ]);
+
+        Review::create([
+            'reviewer_id' => $reviewer->id,
+            'reviewed_id' => $seller->id,
+            'ad_id' => $soldAd->id,
+            'rating' => 5,
+            'comment' => 'Great seller',
+            'is_approved' => true,
+        ]);
+
+        $response = $this->getJson("/api/v1/users/{$seller->id}/profile")
+            ->assertOk()
+            ->assertJsonPath('user.phone_verified', true)
+            ->assertJsonPath('user.active_ads_count', 1)
+            ->assertJsonPath('user.successful_ads_count', 1)
+            ->assertJsonPath('user.ratings_count', 1)
+            ->assertJsonPath('user.rating', 5);
+
+        $badgeIds = collect($response->json('user.trust_badges'))->pluck('id');
+
+        $this->assertTrue($badgeIds->contains('phone_verified'));
+        $this->assertTrue($badgeIds->contains('active_seller'));
+        $this->assertTrue($badgeIds->contains('fast_responder'));
+        $this->assertTrue($badgeIds->contains('post_sale_rating'));
+        $this->assertTrue($badgeIds->contains('successful_sales'));
+    }
+
     public function test_app_review_does_not_trust_client_supplied_user_id(): void
     {
         $victim = User::factory()->create();
@@ -213,5 +281,207 @@ class ProductionHardeningTest extends TestCase
 
         $this->assertDatabaseMissing('users', ['id' => $user->id]);
         $this->assertDatabaseMissing('notifications_table', ['user_id' => $user->id]);
+    }
+
+    public function test_categories_endpoint_rebuilds_after_empty_cache(): void
+    {
+        Cache::put('category_tree:v2', collect(), now()->addHours(12));
+
+        $parent = Category::create([
+            'title' => 'Electronics',
+            'slug' => 'electronics',
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+
+        Category::create([
+            'title' => 'Phones',
+            'slug' => 'phones',
+            'parent_id' => $parent->id,
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+
+        $this->getJson('/api/v1/categories')
+            ->assertOk()
+            ->assertJsonPath('data.0.name', 'Electronics')
+            ->assertJsonPath('data.0.children.0.name', 'Phones');
+    }
+
+    public function test_profile_export_includes_rich_report_data(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Report User',
+            'phone' => '+967777777782',
+            'is_active' => true,
+            'show_phone_number' => true,
+            'accepts_notifications' => true,
+        ]);
+        $reviewer = User::factory()->create(['name' => 'Reviewer User']);
+
+        $category = Category::create([
+            'title' => 'Cars',
+            'slug' => 'cars',
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+
+        $ad = Ad::create([
+            'user_id' => $user->id,
+            'category_id' => $category->id,
+            'title' => 'Clean sedan',
+            'slug' => 'clean-sedan',
+            'description' => 'A detailed export description for the generated PDF.',
+            'price' => 12500,
+            'currency' => 'YER',
+            'location' => 'Sanaa',
+            'status' => 'active',
+            'views' => 37,
+            'is_featured' => true,
+            'is_negotiable' => true,
+            'condition' => 'used',
+        ]);
+
+        $user->favorites()->attach($ad->id);
+
+        Review::create([
+            'reviewer_id' => $reviewer->id,
+            'reviewed_id' => $user->id,
+            'ad_id' => $ad->id,
+            'rating' => 5,
+            'comment' => 'Excellent seller',
+            'is_approved' => true,
+        ]);
+
+        Sanctum::actingAs($user, ['user']);
+
+        $this->getJson('/api/v1/profile/export')
+            ->assertOk()
+            ->assertJsonPath('user.name', 'Report User')
+            ->assertJsonPath('user.avatar_url', $user->avatar_url)
+            ->assertJsonPath('stats.total_ads', 1)
+            ->assertJsonPath('stats.total_views', 37)
+            ->assertJsonPath('stats.total_favorites', 1)
+            ->assertJsonPath('stats.reviews_count', 1)
+            ->assertJsonPath('ads.0.description', 'A detailed export description for the generated PDF.')
+            ->assertJsonPath('ads.0.category', 'Cars')
+            ->assertJsonPath('ads.0.favorites_count', 1)
+            ->assertJsonPath('ads.0.is_featured', true)
+            ->assertJsonPath('favorites.0.title', 'Clean sedan')
+            ->assertJsonPath('reviews.0.reviewer_name', 'Reviewer User')
+            ->assertJsonPath('reviews.0.comment', 'Excellent seller');
+    }
+
+    public function test_ads_index_supports_smart_filters_and_sorting(): void
+    {
+        $seller = User::factory()->create();
+        $cars = Category::create([
+            'title' => 'Cars',
+            'slug' => 'cars-smart-filter',
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+        $phones = Category::create([
+            'title' => 'Phones',
+            'slug' => 'phones-smart-filter',
+            'is_active' => true,
+            'sort_order' => 2,
+        ]);
+
+        $mostViewed = Ad::create([
+            'user_id' => $seller->id,
+            'category_id' => $cars->id,
+            'title' => 'Toyota Camry',
+            'slug' => 'toyota-camry-smart-filter',
+            'description' => 'Clean family car',
+            'price' => 1200,
+            'currency' => 'YER',
+            'location' => 'Sanaa',
+            'status' => 'active',
+            'views' => 90,
+            'condition' => 'used',
+        ]);
+
+        Ad::create([
+            'user_id' => $seller->id,
+            'category_id' => $cars->id,
+            'title' => 'Honda Civic',
+            'slug' => 'honda-civic-smart-filter',
+            'description' => 'Reliable car',
+            'price' => 1000,
+            'currency' => 'YER',
+            'location' => 'Sanaa',
+            'status' => 'active',
+            'views' => 25,
+            'condition' => 'used',
+        ]);
+
+        Ad::create([
+            'user_id' => $seller->id,
+            'category_id' => $phones->id,
+            'title' => 'Phone outside filter',
+            'slug' => 'phone-outside-smart-filter',
+            'description' => 'Different category',
+            'price' => 1100,
+            'currency' => 'YER',
+            'location' => 'Sanaa',
+            'status' => 'active',
+            'views' => 999,
+            'condition' => 'used',
+        ]);
+
+        $this->getJson("/api/v1/ads?category_id={$cars->id}&location=Sanaa&min_price=900&max_price=1500&condition=used&sort=most_viewed")
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.id', $mostViewed->id)
+            ->assertJsonPath('data.0.location', 'Sanaa')
+            ->assertJsonPath('data.0.condition', 'used');
+    }
+
+    public function test_saved_search_notifies_user_when_matching_ad_is_created(): void
+    {
+        $buyer = User::factory()->create();
+        $seller = User::factory()->create();
+        $category = Category::create([
+            'title' => 'Cars',
+            'slug' => 'cars-saved-search',
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+
+        Sanctum::actingAs($buyer, ['user']);
+
+        $this->postJson('/api/v1/saved-searches', [
+            'name' => 'Camry in Sanaa',
+            'notify_enabled' => true,
+            'filters' => [
+                'search' => 'Camry',
+                'category_id' => $category->id,
+                'location' => 'Sanaa',
+                'min_price' => 1000,
+                'max_price' => 2000,
+                'currency' => 'YER',
+                'condition' => 'used',
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.name', 'Camry in Sanaa');
+
+        Sanctum::actingAs($seller, ['user']);
+
+        $this->postJson('/api/v1/ads', [
+            'title' => 'Toyota Camry 2018',
+            'description' => 'A clean Camry matching the saved search.',
+            'price' => 1500,
+            'currency' => 'YER',
+            'category_id' => $category->id,
+            'location' => 'Sanaa',
+            'condition' => 'used',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('notifications_table', [
+            'user_id' => $buyer->id,
+            'type' => 'saved_search_match',
+            'title' => 'إعلان جديد مطابق لبحثك',
+        ]);
     }
 }

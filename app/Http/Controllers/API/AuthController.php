@@ -226,7 +226,7 @@ class AuthController extends Controller
      */
     public function publicProfile($id)
     {
-        $user = User::withCount(['followers', 'following', 'ads'])
+        $user = User::withTrustMetrics()
             ->findOrFail($id);
 
         return response()->json([

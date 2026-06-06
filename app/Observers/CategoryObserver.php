@@ -37,5 +37,6 @@ class CategoryObserver
     private function clearCache(): void
     {
         Cache::forget('category_tree');
+        Cache::forget('category_tree:v2');
     }
 }

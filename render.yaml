@@ -7,7 +7,7 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: APP_NAME
-        value: "Haraj App"
+        value: "Laqta App"
       - key: APP_ENV
         value: production
       - key: APP_KEY
