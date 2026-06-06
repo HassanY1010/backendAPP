@@ -11,14 +11,16 @@ services:
       - key: APP_ENV
         value: production
       - key: APP_KEY
-        value: base64:Xk2gP9jJd4qW5+pZ8rT3nL6mK9xV2bN1cM4aQ7sR0tY=
+        sync: false
+      - key: APP_URL
+        value: https://backendapp-jycu.onrender.com
       - key: APP_DEBUG
         value: "false"
       - key: APP_TIMEZONE
         value: UTC
       - key: LOG_LEVEL
         value: error
-      # Database (Aiven MySQL)
+      # Database (Aiven MySQL) — set secrets manually in Render dashboard
       - key: DB_CONNECTION
         value: mysql
       - key: DB_HOST
@@ -30,7 +32,7 @@ services:
       - key: DB_USERNAME
         value: avnadmin
       - key: DB_PASSWORD
-        value: AVNS_vvHDuQvfvYiK9yODm_i
+        sync: false
       - key: MYSQL_ATTR_SSL_CA
         value: /etc/ssl/certs/aiven-ca.crt
       # Cache / Queue / Session
@@ -44,13 +46,13 @@ services:
         value: "120"
       - key: FILESYSTEM_DISK
         value: supabase
-      # Supabase Storage
+      # Supabase Storage — set secrets manually in Render dashboard
       - key: SUPABASE_URL
         value: https://seilhifvqmfusegrpeqd.supabase.co
       - key: SUPABASE_STORAGE_KEY
         value: seilhifvqmfusegrpeqd
       - key: SUPABASE_STORAGE_SECRET
-        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlaWxoaWZ2cW1mdXNlZ3JwZXFkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDcwNjUwOSwiZXhwIjoyMDk2MjgyNTA5fQ.YtTY1UxeK_OIqN7DfN714UyKJzKcgXUug9-cQH4aeyk
+        sync: false
       - key: SUPABASE_STORAGE_ENDPOINT
         value: https://seilhifvqmfusegrpeqd.supabase.co/storage/v1/s3
       - key: SUPABASE_STORAGE_BUCKET
@@ -63,7 +65,7 @@ services:
       - key: PUSHER_APP_KEY
         value: e4d91eea6f30eee94550
       - key: PUSHER_APP_SECRET
-        value: d93daddafb2d65f8bffb
+        sync: false
       - key: PUSHER_APP_CLUSTER
         value: ap2
       # SMS
@@ -74,7 +76,9 @@ services:
       - key: SMS_USER_NAME
         value: LaqtaApp
       - key: SMS_PASSWORD
-        value: LaqtaApp@656779800442311
-      # Admin Token TTL
+        sync: false
+      # CORS
+      - key: FRONTEND_URL
+        value: https://app-lo0g0xnpz-hr-s-projects12.vercel.app,http://localhost:5173
       - key: ADMIN_TOKEN_TTL_HOURS
         value: "8"
