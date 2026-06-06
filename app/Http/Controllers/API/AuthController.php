@@ -9,9 +9,58 @@ use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 
 class AuthController extends Controller
 {
+    private const USER_TOKEN_TTL_DAYS = 30;
+    private const ADMIN_TOKEN_TTL_HOURS = 8;
+    private const OTP_MAX_ATTEMPTS = 5;
+    private const OTP_LOCK_MINUTES = 15;
+
+    private function normalizePhone(string $phone): string
+    {
+        $phone = str_replace(['+', ' ', '-'], '', $phone);
+
+        if (str_starts_with($phone, '00')) {
+            $phone = substr($phone, 2);
+        }
+
+        if (str_starts_with($phone, '9670')) {
+            $phone = '967' . substr($phone, 4);
+        } elseif (str_starts_with($phone, '9660')) {
+            $phone = '966' . substr($phone, 4);
+        }
+
+        return '+' . $phone;
+    }
+
+    private function recordSession(User $user, Request $request): void
+    {
+        UserSession::create([
+            'user_id' => $user->id,
+            'login_at' => now(),
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
+    }
+
+    private function loginPayload(User $user, string $token, string $message, bool $includeData = false): array
+    {
+        $payload = [
+            'message' => $message,
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'user' => new UserResource($user),
+        ];
+
+        if ($includeData) {
+            $payload['data'] = new UserResource($user);
+        }
+
+        return $payload;
+    }
+
     /**
      * Login with phone number (creates user if doesn't exist)
      */
@@ -28,29 +77,28 @@ class AuthController extends Controller
             return response()->json(['message' => 'بيانات الدخول غير صحيحة'], 401);
         }
 
-        // Revoke all tokens...
-        // $user->tokens()->delete();
+        if (!$user->is_active) {
+            return response()->json(['message' => 'Account is disabled'], 403);
+        }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user
+            ->createToken('auth_token', ['user'], now()->addDays(self::USER_TOKEN_TTL_DAYS))
+            ->plainTextToken;
 
         // Update login stats
         $user->last_login_at = now();
-        $user->login_count = $user->login_count + 1;
+        $user->login_count = ($user->login_count ?? 0) + 1;
         $user->save();
 
         // Log session
-        \App\Models\UserSession::create([
-            'user_id' => $user->id,
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->header('User-Agent'),
-            'last_activity' => now(),
-        ]);
+        $this->recordSession($user, $request);
 
         return response()->json([
             'message' => 'تم تسجيل الدخول بنجاح',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => $user,
+            'user' => new UserResource($user),
+            'data' => new UserResource($user),
         ]);
     }
 
@@ -67,17 +115,31 @@ class AuthController extends Controller
             return response()->json(['message' => 'بيانات الدخول غير صحيحة'], 401);
         }
 
-        if ($user->role !== 'admin' && $user->role !== 'moderator') {
+        if ($user->role !== 'admin') {
             return response()->json(['message' => 'غير مصرح لك بالدخول كمدير'], 403);
         }
 
-        $token = $user->createToken('admin_token', ['*'], now()->addYear())->plainTextToken;
+        if (!$user->is_active) {
+            return response()->json(['message' => 'Account is disabled'], 403);
+        }
+
+        $token = $user
+            ->createToken('admin_token', ['admin'], now()->addHours((int) env('ADMIN_TOKEN_TTL_HOURS', self::ADMIN_TOKEN_TTL_HOURS)))
+            ->plainTextToken;
+
+        $user->forceFill([
+            'last_login_at' => now(),
+            'login_count' => ($user->login_count ?? 0) + 1,
+        ])->save();
+
+        $this->recordSession($user, $request);
 
         return response()->json([
             'message' => 'تم تسجيل دخول المدير بنجاح',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => $user,
+            'user' => new UserResource($user),
+            'data' => new UserResource($user),
         ]);
     }
 
@@ -103,7 +165,9 @@ class AuthController extends Controller
             'user_agent' => $request->userAgent(),
         ]);
 
-        $token = $user->createToken('guest_token')->plainTextToken;
+        $token = $user
+            ->createToken('guest_token', ['guest'], now()->addDay())
+            ->plainTextToken;
 
         return response()->json([
             'message' => 'Guest login successful',
@@ -177,21 +241,7 @@ class AuthController extends Controller
      */
     public function sendOtp(Request $request)
     {
-        // 1. Normalize phone (strip +, 00, spaces)
-        $phone = $request->phone;
-        $phone = str_replace(['+', ' ', '-'], '', $phone);
-        if (str_starts_with($phone, '00')) {
-            $phone = substr($phone, 2);
-        }
-
-        // Remove leading zero after country code (common mistake: +967077... instead of +96777...)
-        if (str_starts_with($phone, '9670')) {
-            $phone = '967' . substr($phone, 4);
-        } elseif (str_starts_with($phone, '9660')) {
-            $phone = '966' . substr($phone, 4);
-        }
-
-        $phone = '+' . $phone; // Alawaeltec strictly requires the + sign
+        $phone = $this->normalizePhone((string) $request->phone);
 
         // 2. Validate normalized phone (+ sign then 12 digits for Yemen/Saudi)
         $validator = \Illuminate\Support\Facades\Validator::make(['phone' => $phone], [
@@ -212,11 +262,12 @@ class AuthController extends Controller
             ['name' => 'User ' . substr($phone, -4)] // Placeholder name
         );
 
-        // Update OTP
-        $user->update([
-            'otp' => $code,
+        $user->forceFill([
+            'otp' => Hash::make($code),
             'otp_expires_at' => now()->addMinutes(5),
-        ]);
+            'otp_attempts' => 0,
+            'otp_locked_until' => null,
+        ])->save();
 
         // API Credentials from config
         $gatewayUrl = config('services.sms.gateway_url');
@@ -256,12 +307,11 @@ class AuthController extends Controller
                 $isExplicitError = str_contains($responseBody, '1702') || str_contains($responseBody, '1703');
 
                 if (!$isExplicitError) {
-                    \Log::info("SMS Optimistic Success for $phone: " . $responseBody);
+                    Log::info('SMS OTP accepted by gateway', ['phone' => $phone]);
                 } else {
-                    \Log::error("SMS Gateway explicit error for $phone: " . $responseBody);
+                    Log::error('SMS Gateway explicit error', ['phone' => $phone]);
                     return response()->json([
                         'message' => 'تعذر إرسال الرمز حالياً، يرجى التأكد من صحة الرقم أو المحاولة لاحقاً.',
-                        'gateway_response' => $responseBody
                     ], 400);
                 }
             } else {
@@ -295,23 +345,7 @@ class AuthController extends Controller
             'code' => 'required|string|size:6',
         ]);
 
-        // Normalize phone to match the format stored in sendOtp
-        $phone = $request->phone;
-        $phone = str_replace(['+', ' ', '-'], '', $phone);
-
-        if (str_starts_with($phone, '00')) {
-            $phone = substr($phone, 2);
-        }
-
-        // Match sendOtp normalization: Remove leading zero after country code (e.g. +967077... -> +96777...)
-        if (str_starts_with($phone, '967')) {
-            $afterCountry = substr($phone, 3);
-            if (str_starts_with($afterCountry, '0')) {
-                $phone = '967' . substr($afterCountry, 1);
-            }
-        }
-
-        $phone = '+' . $phone;
+        $phone = $this->normalizePhone((string) $request->phone);
 
         $user = User::where('phone', $phone)->first();
 
@@ -323,15 +357,37 @@ class AuthController extends Controller
             ], 404);
         }
 
-        if ($user->otp !== $request->code) {
-            \Log::warning("Verify OTP: Code mismatch for $phone. Stored: {$user->otp}, Input: {$request->code}");
+        if (!$user->is_active) {
+            return response()->json([
+                'message' => 'Account is disabled',
+                'valid' => false
+            ], 403);
+        }
+
+        if ($user->otp_locked_until && now()->lt($user->otp_locked_until)) {
+            return response()->json([
+                'message' => 'Too many OTP attempts. Try again later.',
+                'valid' => false
+            ], 429);
+        }
+
+        if (!$user->otp || !Hash::check($request->code, $user->otp)) {
+            $attempts = ((int) $user->otp_attempts) + 1;
+            $user->forceFill([
+                'otp_attempts' => $attempts,
+                'otp_locked_until' => $attempts >= self::OTP_MAX_ATTEMPTS
+                    ? now()->addMinutes(self::OTP_LOCK_MINUTES)
+                    : null,
+            ])->save();
+
+            Log::warning('Verify OTP failed: code mismatch', ['phone' => $phone, 'attempts' => $attempts]);
             return response()->json([
                 'message' => 'كود التحقق غير صحيح.',
                 'valid' => false
             ], 400);
         }
 
-        if ($user->otp_expires_at && now()->gt($user->otp_expires_at)) {
+        if (!$user->otp_expires_at || now()->gt($user->otp_expires_at)) {
             \Log::warning("Verify OTP: Code expired for $phone. Expires: {$user->otp_expires_at}, Now: " . now());
             return response()->json([
                 'message' => 'كود التحقق انتهت صلاحيته.',
@@ -340,21 +396,27 @@ class AuthController extends Controller
         }
 
         // Clear OTP
-        $user->update([
+        $user->forceFill([
             'otp' => null,
             'otp_expires_at' => null,
-            'is_active' => true,
+            'otp_attempts' => 0,
+            'otp_locked_until' => null,
             'phone_verified_at' => now(),
             'last_login_at' => now(),
-            'login_count' => $user->login_count + 1,
-        ]);
+            'login_count' => ($user->login_count ?? 0) + 1,
+        ])->save();
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user
+            ->createToken('auth_token', ['user'], now()->addDays(self::USER_TOKEN_TTL_DAYS))
+            ->plainTextToken;
+
+        $this->recordSession($user, $request);
 
         return response()->json([
             'message' => 'Login successful',
             'valid' => true,
             'data' => new UserResource($user),
+            'user' => new UserResource($user),
             'access_token' => $token,
             'token_type' => 'Bearer',
         ]);

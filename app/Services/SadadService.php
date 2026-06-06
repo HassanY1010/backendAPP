@@ -29,6 +29,17 @@ class SadadService
         ];
     }
 
+    protected function redactedPayload(array $payload): array
+    {
+        foreach (['USR', 'TKN', 'token', 'password'] as $secretKey) {
+            if (array_key_exists($secretKey, $payload)) {
+                $payload[$secretKey] = '[redacted]';
+            }
+        }
+
+        return $payload;
+    }
+
     /**
      * Get Agent Balance
      */
@@ -54,13 +65,16 @@ class SadadService
     {
         $payload = array_merge($this->getAuthParams(), $data);
         
-        Log::info("Sadad Payment Request: ", $payload);
+        Log::info('Sadad Payment Request', $this->redactedPayload($payload));
 
         try {
             $response = Http::post($this->baseUrl, $payload);
             $result = $response->json();
             
-            Log::info("Sadad Payment Response: ", $result ?? []);
+            Log::info('Sadad Payment Response', [
+                'rc' => $result['rc'] ?? null,
+                'msg' => $result['msg'] ?? null,
+            ]);
             
             return $result;
         } catch (\Exception $e) {

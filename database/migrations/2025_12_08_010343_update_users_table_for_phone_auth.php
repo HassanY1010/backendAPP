@@ -10,6 +10,8 @@ return new class extends Migration {
      */
     public function up(): void
     {
+        $isSqlite = Schema::getConnection()->getDriverName() === 'sqlite';
+
         Schema::table('users', function (Blueprint $table) {
             // Drop email-related columns
             $table->dropUnique(['email']);
@@ -22,12 +24,16 @@ return new class extends Migration {
             $table->string('phone')->nullable(false)->change();
 
             // Add guest role to enum if not exists (modify role column)
-            $table->dropColumn('role');
+            if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+                $table->dropColumn('role');
+            }
         });
 
-        Schema::table('users', function (Blueprint $table) {
-            $table->enum('role', ['user', 'admin', 'moderator', 'guest'])->default('user')->after('avatar');
-        });
+        if (!$isSqlite) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->enum('role', ['user', 'admin', 'moderator', 'guest'])->default('user')->after('avatar');
+            });
+        }
 
         // Drop password_reset_tokens table as it's no longer needed
         Schema::dropIfExists('password_reset_tokens');

@@ -26,16 +26,14 @@ class AdController extends Controller
             if ($request->has('search') && $request->search) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
-                            $q->whereFullText(['title', 'description'], $search)
-                                ->orWhere('title', 'like', "%{$search}%")
-                                ->orWhere('description', 'like', "%{$search}%")
-                                ->orWhere('location', 'like', "%{$search}%")
-                                ->orWhereHas('category', function ($cq) use ($search) {
-                        $cq->where('title', 'like', "%{$search}%");
-                    }
-                    );
-                }
-                );
+                    $q->whereFullText(['title', 'description'], $search)
+                        ->orWhere('title', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%")
+                        ->orWhere('location', 'like', "%{$search}%")
+                        ->orWhereHas('category', function ($cq) use ($search) {
+                            $cq->where('title', 'like', "%{$search}%");
+                        });
+                });
             }
 
             // Filter by category
@@ -70,11 +68,9 @@ class AdController extends Controller
             $sort = $request->get('sort', 'latest');
             if ($sort === 'cheapest') {
                 $query->orderBy('price', 'asc');
-            }
-            elseif ($sort === 'expensive') {
+            } elseif ($sort === 'expensive') {
                 $query->orderBy('price', 'desc');
-            }
-            else {
+            } else {
                 $query->latest();
             }
 
@@ -102,18 +98,17 @@ class AdController extends Controller
         // Cache the base featured ads (without user-specific likes)
         $ads = \Illuminate\Support\Facades\Cache::remember('featured_ads_base', 300, function () {
             return Ad::with(['user', 'category', 'images', 'mainImage'])
-            ->where('status', 'active')
-            ->where('is_featured', true)
-            ->where(function ($q) {
+                ->where('status', 'active')
+                ->where('is_featured', true)
+                ->where(function ($q) {
                     $q->whereNull('featured_until')
                         ->orWhere('featured_until', '>', now());
-                }
-                )
+                })
                 ->latest()
                 ->withCount('favoritedBy as likes_count')
                 ->take(10)
                 ->get();
-            });
+        });
 
         // Add user-specific state outside the cache
         if (auth('sanctum')->check()) {
@@ -171,9 +166,6 @@ class AdController extends Controller
                 'status' => 'active', // Changed from pending to active for immediate visibility
             ]);
 
-            // Clear cache so new ad appears immediately
-            \Illuminate\Support\Facades\Cache::flush();
-
             // Handle Images
             if ($request->has('images')) {
                 foreach ($request->images as $index => $imagePath) {
@@ -186,6 +178,21 @@ class AdController extends Controller
                     // Level 1 Optimization: Background processing
                     ProcessAdImage::dispatch($adImage);
                 }
+            }
+
+            // Clear only the targeted ads-related cache keys
+            \Illuminate\Support\Facades\Cache::forget('featured_ads_base');
+            // Clear paginated ads list caches by pattern (safe targeted removal)
+            try {
+                $keys = [
+                    'ads_list_' . md5(json_encode([])),
+                ];
+                foreach ($keys as $key) {
+                    \Illuminate\Support\Facades\Cache::forget($key);
+                }
+            } catch (\Exception $cacheEx) {
+                // Non-fatal: log but do not fail the ad creation
+                \Illuminate\Support\Facades\Log::warning('Cache invalidation partial failure', ['error' => $cacheEx->getMessage()]);
             }
 
             // Handle Custom Fields (if any)
@@ -202,11 +209,10 @@ class AdController extends Controller
             DB::commit();
 
             return new AdResource($ad->load(['images', 'mainImage', 'user', 'category']));
-        }
-        catch (\Exception $e) {
+        } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error creating ad: ' . $e->getMessage());
-            return response()->json(['message' => 'Error creating ad', 'error' => $e->getMessage()], 500);
+            Log::error('Error creating ad', ['exception' => $e->getMessage()]);
+            return response()->json(['message' => 'Error creating ad'], 500);
         }
     }
 
@@ -221,7 +227,7 @@ class AdController extends Controller
             $ad->is_liked = $ad->favoritedBy()->where('user_id', auth('sanctum')->id())->exists();
         }
 
-        // Incremenet views
+        // Increment views
         $ad->increment('views');
 
         return new AdResource($ad);
@@ -243,9 +249,6 @@ class AdController extends Controller
             'title', 'description', 'price', 'currency', 'location',
             'contact_phone', 'contact_whatsapp'
         ]));
-
-        // Status might reset to pending on update depending on business logic
-        // $ad->update(['status' => 'pending']); 
 
         return new AdResource($ad);
     }
@@ -276,10 +279,6 @@ class AdController extends Controller
 
         if ($request->hasFile('image')) {
             $path = $request->file('image')->store('ads', 'supabase');
-            // Or store to s3/supabase if configured
-            // $path = $request->file('image')->store('ads', 's3');
-
-            // Return the path or full URL
             return response()->json([
                 'path' => $path,
                 'url' => Storage::disk('supabase')->url($path)
@@ -288,6 +287,7 @@ class AdController extends Controller
 
         return response()->json(['message' => 'No image uploaded'], 400);
     }
+
     public function suggest(Request $request)
     {
         $search = $request->get('search');
@@ -298,14 +298,13 @@ class AdController extends Controller
         $ads = Ad::with(['category', 'mainImage'])
             ->where('status', 'active')
             ->where(function ($q) use ($search) {
-            $q->whereFullText(['title', 'description'], $search)
-                ->orWhere('title', 'like', "%{$search}%")
-                ->orWhere('description', 'like', "%{$search}%")
-                ->orWhereHas('category', function ($cq) use ($search) {
-                $cq->where('title', 'like', "%{$search}%");
-            }
-            );
-        })
+                $q->whereFullText(['title', 'description'], $search)
+                    ->orWhere('title', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhereHas('category', function ($cq) use ($search) {
+                        $cq->where('title', 'like', "%{$search}%");
+                    });
+            })
             ->latest()
             ->take(10)
             ->get();

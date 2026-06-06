@@ -23,16 +23,21 @@ class User extends Authenticatable
         'phone',
         'password',
         'avatar',
-        'role',
         'is_active',
         'last_login_at',
         'login_count',
         'show_phone_number',
         'qr_code',
-        'otp',
-        'otp_expires_at',
         'accepts_notifications',
         'last_activity_at',
+    ];
+
+    protected $guarded = [
+        'role',
+        'otp',
+        'otp_expires_at',
+        'otp_attempts',
+        'otp_locked_until',
     ];
 
     /**
@@ -41,9 +46,12 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $hidden = [
+        'password',
         'remember_token',
         'otp',
         'otp_expires_at',
+        'otp_attempts',
+        'otp_locked_until',
     ];
 
     /**
@@ -59,6 +67,7 @@ class User extends Authenticatable
             'is_active' => 'boolean',
             'show_phone_number' => 'boolean',
             'otp_expires_at' => 'datetime',
+            'otp_locked_until' => 'datetime',
             'accepts_notifications' => 'boolean',
             'last_activity_at' => 'datetime',
         ];
@@ -155,6 +164,11 @@ class User extends Authenticatable
     public function receivedMessages()
     {
         return $this->hasMany(Message::class , 'receiver_id');
+    }
+
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class);
     }
 
     public function reviewsReceived()

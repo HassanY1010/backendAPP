@@ -73,7 +73,9 @@ return new class extends Migration {
             $table->timestamps();
 
             $table->foreign('category_id')->references('id')->on('categories')->onDelete('cascade');
-            $table->fullText(['title', 'description', 'location']);
+            if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+                $table->fullText(['title', 'description', 'location']);
+            }
         });
 
         // 5. ad_custom_fields

@@ -12,36 +12,26 @@ use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\AppReviewController;
 use App\Http\Controllers\API\ProfileController;
 
-// App Reviews
-Route::post('/app-reviews', [AppReviewController::class , 'store']);
+Route::get('/health', fn () => response()->json(['status' => 'ok']));
 
-// Test Image URL Generation (Diagnostic)
-Route::get('/test-image-url', function () {
-    $image = \App\Models\AdImage::first();
-    if (!$image) {
-        return response()->json(['error' => 'No images found in database']);
-    }
-    return response()->json([
-    'image_path' => $image->image_path,
-    'thumbnail_path' => $image->thumbnail_path,
-    'generated_image_url' => $image->image_url,
-    'generated_thumbnail_url' => $image->thumbnail_url,
-    'expected_format' => env('SUPABASE_URL') . '/storage/v1/object/public/uploads/' . $image->image_path,
-    'config_url' => config('filesystems.disks.supabase.url'),
-    ]);
-});
+// App Reviews
+Route::post('/app-reviews', [AppReviewController::class , 'store'])->middleware('throttle:5,1');
 
 
 // Auth Routes with Rate Limiting
 Route::prefix('v1')->group(function () {
+    // Login / Admin — 10 per minute
     Route::middleware('throttle:10,1')->group(function () {
-            Route::post('/login', [AuthController::class , 'login']);
-            Route::post('/guest-login', [AuthController::class , 'guestLogin']);
-            Route::post('/auth/send-otp', [AuthController::class , 'sendOtp']);
-            Route::post('/auth/verify-otp', [AuthController::class , 'verifyOtp']);
-            Route::post('/admin/login', [AuthController::class , 'adminLogin']);
-        }
-        );
+        Route::post('/login', [AuthController::class, 'login']);
+        Route::post('/guest-login', [AuthController::class, 'guestLogin']);
+        Route::post('/admin/login', [AuthController::class, 'adminLogin']);
+    });
+
+    // OTP routes — stricter: 5 per minute per IP
+    Route::middleware('throttle:5,1')->group(function () {
+        Route::post('/auth/send-otp', [AuthController::class, 'sendOtp']);
+        Route::post('/auth/verify-otp', [AuthController::class, 'verifyOtp']);
+    });
 
 
         // Protected Routes
@@ -49,7 +39,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/logout', [AuthController::class , 'logout']);
             Route::get('/user', [AuthController::class , 'user']);
             Route::get('/auth/verify', function (Request $request) {
-                    return response()->json(['user_id' => $request->user()->id]);
+                    return response()->json([
+                        'user_id' => $request->user()->id,
+                        'role' => $request->user()->role,
+                        'is_active' => $request->user()->is_active,
+                    ]);
                 }
                 );
                 Route::get('/sessions', [AuthController::class , 'sessions']);
@@ -61,17 +55,18 @@ Route::prefix('v1')->group(function () {
                 Route::get('/profile/export', [ProfileController::class , 'export']);
 
                 // Ads
-                Route::post('/ads', [AdController::class , 'store']);
+                Route::post('/ads', [AdController::class, 'store'])
+                    ->middleware(\App\Http\Middleware\BlockGuestAccess::class);
                 Route::post('/ads/{id}/update', [AdController::class , 'update']);
                 Route::delete('/ads/{id}', [AdController::class , 'destroy']);
                 Route::get('/user/ads', [AdController::class , 'userAds']);
-                Route::post('/ads/upload-image', [AdController::class , 'uploadImage']);
+                Route::post('/ads/upload-image', [AdController::class , 'uploadImage'])->middleware('throttle:20,1');
 
                 // Social & Comments
-                Route::post('/ads/{id}/comments', [\App\Http\Controllers\CommentController::class , 'store']);
+                Route::post('/ads/{id}/comments', [\App\Http\Controllers\CommentController::class , 'store'])->middleware('throttle:30,1');
 
-                Route::post('/users/{id}/follow', [\App\Http\Controllers\FollowController::class , 'follow']);
-                Route::post('/users/{id}/unfollow', [\App\Http\Controllers\FollowController::class , 'unfollow']);
+                Route::post('/users/{id}/follow', [\App\Http\Controllers\FollowController::class , 'follow'])->middleware('throttle:30,1');
+                Route::post('/users/{id}/unfollow', [\App\Http\Controllers\FollowController::class , 'unfollow'])->middleware('throttle:30,1');
                 Route::get('/users/{id}/followers', [\App\Http\Controllers\FollowController::class , 'followers']);
                 Route::get('/users/{id}/following', [\App\Http\Controllers\FollowController::class , 'following']);
 
@@ -83,14 +78,15 @@ Route::prefix('v1')->group(function () {
                 Route::get('/favorites', [FavoriteController::class , 'index']);
 
                 // Messages
-                Route::post('/messages/send', [MessageController::class , 'send']);
-                Route::get('/messages/fetch/{userId}/{otherUserId}', [MessageController::class , 'fetch']);
+                Route::post('/messages/send', [MessageController::class, 'send'])
+                    ->middleware(['throttle:60,1', \App\Http\Middleware\BlockGuestAccess::class]);
+                Route::get('/messages/fetch/{otherUserId}', [MessageController::class, 'fetch']);
                 Route::get('/messages/conversations', [MessageController::class , 'conversations']);
                 Route::delete('/messages/conversations/{id}', [MessageController::class , 'deleteConversation']);
 
                 // Blocking
-                Route::post('/users/{id}/block', [MessageController::class , 'blockUser']);
-                Route::post('/users/{id}/unblock', [MessageController::class , 'unblockUser']);
+                Route::post('/users/{id}/block', [MessageController::class , 'blockUser'])->middleware('throttle:20,1');
+                Route::post('/users/{id}/unblock', [MessageController::class , 'unblockUser'])->middleware('throttle:20,1');
 
                 // Notifications
                 Route::get('/notifications', [NotificationController::class , 'index']);
@@ -99,7 +95,8 @@ Route::prefix('v1')->group(function () {
                 Route::delete('/notifications/{id}', [NotificationController::class , 'destroy']);
 
                 // Reports
-                Route::post('/report', [ReportController::class , 'store']);
+                Route::post('/report', [ReportController::class, 'store'])
+                    ->middleware(['throttle:10,1', \App\Http\Middleware\BlockGuestAccess::class]);
 
                 // User Search & Profile
                 Route::get('/users/search', [\App\Http\Controllers\API\AuthController::class , 'search']); // Need to implement these in AuthController or separate

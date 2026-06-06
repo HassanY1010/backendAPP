@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         try {
             Schema::table('ads', function (Blueprint $table) {
                 $table->fullText(['title', 'description']);
@@ -26,6 +30,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         try {
             Schema::table('ads', function (Blueprint $table) {
                 $table->dropFullText(['title', 'description']);

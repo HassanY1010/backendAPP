@@ -37,11 +37,15 @@ class AdController extends Controller
         }
 
         // Sort
-        $sortBy = $request->get('sort_by', 'created_at');
-        $sortOrder = $request->get('sort_order', 'desc');
+        $allowedSorts = ['created_at', 'updated_at', 'price', 'views', 'status', 'title'];
+        $sortBy = in_array($request->get('sort_by'), $allowedSorts, true)
+            ? $request->get('sort_by')
+            : 'created_at';
+        $sortOrder = strtolower($request->get('sort_order', 'desc')) === 'asc' ? 'asc' : 'desc';
         $query->orderBy($sortBy, $sortOrder);
 
-        $ads = $query->paginate($request->get('per_page', 20));
+        $perPage = min(max((int) $request->get('per_page', 20), 1), 100);
+        $ads = $query->paginate($perPage);
 
         return \App\Http\Resources\AdResource::collection($ads);
     }
@@ -126,7 +130,7 @@ class AdController extends Controller
     public function destroy($id)
     {
         $ad = Ad::findOrFail($id);
-        $ad->forceDelete();
+        $ad->delete();
 
         return response()->json(['message' => 'Ad deleted successfully']);
     }

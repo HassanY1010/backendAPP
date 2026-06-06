@@ -20,7 +20,7 @@ return new class extends Migration
             $table->timestamp('phone_verified_at')->nullable();
             $table->string('password');
             $table->string('avatar')->nullable();
-            $table->enum('role', ['user', 'admin', 'moderator'])->default('user');
+            $table->enum('role', ['user', 'admin', 'moderator', 'guest'])->default('user');
             $table->boolean('is_active')->default(true);
             $table->timestamp('last_login_at')->nullable();
             $table->integer('login_count')->default(0);

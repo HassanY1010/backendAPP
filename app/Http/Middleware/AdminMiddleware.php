@@ -10,26 +10,22 @@ class AdminMiddleware
 {
     /**
      * Handle an incoming request.
-     *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * Only allows users with role 'admin' to proceed.
      */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        
+
         if (!$user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        // Allow admin and moderator
-        if ($user->role === 'admin' || $user->role === 'moderator') {
+        if ($user->role === 'admin') {
             return $next($request);
         }
 
         return response()->json([
-            'message' => 'Unauthorized access',
-            'your_role' => $user->role,
-            'required_role' => 'admin or moderator'
+            'message' => 'Unauthorized access. Admin role required.',
         ], 403);
     }
 }

@@ -11,12 +11,11 @@ class AppReviewController extends Controller
     {
         $request->validate([
             'rating' => 'required|integer|min:1|max:5',
-            'comment' => 'nullable|string',
-            'user_id' => 'nullable|integer|exists:users,id',
+            'comment' => 'nullable|string|max:2000',
         ]);
 
         $review = AppReview::create([
-            'user_id' => $request->user_id,
+            'user_id' => $request->user()?->id,
             'rating' => $request->rating,
             'comment' => $request->comment,
         ]);

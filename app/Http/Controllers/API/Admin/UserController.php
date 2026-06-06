@@ -34,9 +34,13 @@ class UserController extends Controller
         $request->validate([
             'name' => 'string|max:255',
             'phone' => 'string|unique:users,phone,' . $id,
-            'role' => 'in:user,admin,guest',
+            'role' => 'in:user,admin,moderator',
             'is_active' => 'boolean',
         ]);
+
+        if ($request->has('role') && $user->id === $request->user()->id) {
+            return response()->json(['message' => 'Cannot change your own role'], 403);
+        }
 
         $user->update($request->only(['name', 'phone', 'role', 'is_active']));
 
@@ -50,6 +54,11 @@ class UserController extends Controller
         ]);
 
         $user = User::findOrFail($id);
+
+        if ($user->id === $request->user()->id && !$request->boolean('is_active')) {
+            return response()->json(['message' => 'Cannot deactivate your own account'], 403);
+        }
+
         $user->update(['is_active' => $request->is_active]);
 
         return response()->json(['message' => 'User status updated', 'data' => $user]);
@@ -58,10 +67,15 @@ class UserController extends Controller
     public function updateRole(Request $request, $id)
     {
         $request->validate([
-            'role' => 'required|in:user,admin,guest',
+            'role' => 'required|in:user,admin,moderator',
         ]);
 
         $user = User::findOrFail($id);
+
+        if ($user->id === $request->user()->id) {
+            return response()->json(['message' => 'Cannot change your own role'], 403);
+        }
+
         $user->update(['role' => $request->role]);
 
         return response()->json(['message' => 'User role updated', 'data' => $user]);

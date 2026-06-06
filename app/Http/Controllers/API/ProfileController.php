@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
 {
@@ -15,7 +17,12 @@ class ProfileController extends Controller
 
         $request->validate([
             'name' => 'sometimes|string|max:255',
-            'phone' => 'sometimes|string|max:20',
+            'phone' => [
+                'sometimes',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')->ignore($user->id),
+            ],
             'avatar' => 'sometimes|image|max:2048',
             'accepts_notifications' => 'sometimes|boolean',
             'show_phone_number' => 'sometimes|boolean',
@@ -59,7 +66,10 @@ class ProfileController extends Controller
         }
 
         if ($request->has('phone')) {
-            $user->phone = $request->phone;
+            if ($user->phone !== $request->phone) {
+                $user->phone = $request->phone;
+                $user->phone_verified_at = null;
+            }
         }
 
         $user->save();
@@ -101,8 +111,13 @@ class ProfileController extends Controller
                 'status' => 'success'
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to delete account', [
+                'user_id' => $user->id,
+                'exception' => $e->getMessage(),
+            ]);
+
             return response()->json([
-                'message' => 'Failed to delete account: ' . $e->getMessage(),
+                'message' => 'Failed to delete account',
                 'status' => 'error'
             ], 500);
         }
@@ -163,8 +178,13 @@ class ProfileController extends Controller
                 'exported_at' => now()->toIso8601String(),
             ]);
         } catch (\Exception $e) {
+            Log::error('Failed to export profile data', [
+                'user_id' => $request->user()?->id,
+                'exception' => $e->getMessage(),
+            ]);
+
             return response()->json([
-                'message' => 'Failed to export data: ' . $e->getMessage(),
+                'message' => 'Failed to export data',
                 'status' => 'error'
             ], 500);
         }
