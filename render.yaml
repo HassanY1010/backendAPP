@@ -82,3 +82,8 @@ services:
         value: https://app-lo0g0xnpz-hr-s-projects12.vercel.app,http://localhost:5173
       - key: ADMIN_TOKEN_TTL_HOURS
         value: "8"
+      # Admin Credentials (enter values manually in Render dashboard)
+      - key: ADMIN_PHONE
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
