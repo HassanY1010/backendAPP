@@ -79,7 +79,7 @@ services:
         sync: false
       # CORS
       - key: FRONTEND_URL
-        value: https://app-lo0g0xnpz-hr-s-projects12.vercel.app,http://localhost:5173
+        value: https://app-silk-iota-97.vercel.app,http://localhost:5173
       - key: ADMIN_TOKEN_TTL_HOURS
         value: "8"
       # Admin Credentials (enter values manually in Render dashboard)
