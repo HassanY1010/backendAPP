@@ -17,9 +17,9 @@ php artisan view:cache
 echo ">>> Creating storage symlink..."
 php artisan storage:link || true
 
-# Seed admin user (safe — skips if already exists)
-echo ">>> Seeding admin user..."
-php artisan db:seed --class=AdminSeeder --force || true
+# Seed admin user (safe — skips if already exists, --force promotes existing)
+echo ">>> Creating admin user..."
+php artisan admin:create --phone="${ADMIN_PHONE}" --password="${ADMIN_PASSWORD}" --name="Admin" --force || true
 
 echo ">>> Starting PHP-FPM and Nginx via supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
