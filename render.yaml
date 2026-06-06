@@ -46,13 +46,13 @@ services:
         value: supabase
       # Supabase Storage
       - key: SUPABASE_URL
-        value: https://mcxdxwyrhrabmdlberid.supabase.co
+        value: https://seilhifvqmfusegrpeqd.supabase.co
       - key: SUPABASE_STORAGE_KEY
-        value: f2414377826938715c40c87fc51965ad
+        value: seilhifvqmfusegrpeqd
       - key: SUPABASE_STORAGE_SECRET
-        value: 91173da68b6c60dbbbadda26ca32b9a0433f2d9098a59a53d6956a99f1bf041d
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlaWxoaWZ2cW1mdXNlZ3JwZXFkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDcwNjUwOSwiZXhwIjoyMDk2MjgyNTA5fQ.YtTY1UxeK_OIqN7DfN714UyKJzKcgXUug9-cQH4aeyk
       - key: SUPABASE_STORAGE_ENDPOINT
-        value: https://mcxdxwyrhrabmdlberid.supabase.co/storage/v1/s3
+        value: https://seilhifvqmfusegrpeqd.supabase.co/storage/v1/s3
       - key: SUPABASE_STORAGE_BUCKET
         value: uploads
       # Pusher
