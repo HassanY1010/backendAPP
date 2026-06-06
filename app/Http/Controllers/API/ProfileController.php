@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Models\UserSession;
 use App\Http\Resources\UserResource;
 use App\Http\Controllers\Controller;
+use App\Services\ImageStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -13,7 +14,7 @@ use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
 {
-    public function update(Request $request)
+    public function update(Request $request, ImageStorageService $imageStorage)
     {
         $user = $request->user();
         $oldAvatarToDelete = null;
@@ -42,31 +43,12 @@ class ProfileController extends Controller
 
         if ($request->hasFile('avatar')) {
             $file = $request->file('avatar');
-            $extension = strtolower($file->extension() ?: $file->getClientOriginalExtension() ?: 'jpg');
-            $path = 'avatars/' . Str::uuid() . '.' . $extension;
 
             try {
-                $contents = file_get_contents($file->getRealPath());
-                if ($contents === false) {
-                    return response()->json(['message' => 'تعذر قراءة الصورة المرفوعة'], 422);
-                }
-
-                $uploaded = Storage::disk('supabase')->put($path, $contents, [
-                    'visibility' => 'public',
-                    'ContentType' => $file->getMimeType() ?: 'image/jpeg',
+                $path = $imageStorage->uploadPublicImage($file, 'avatars', [
+                    'user_id' => $user->id,
+                    'type' => 'avatar',
                 ]);
-
-                if (!$uploaded) {
-                    Log::error('Avatar upload failed', [
-                        'user_id' => $user->id,
-                        'filename' => $file->getClientOriginalName(),
-                        'mime' => $file->getMimeType(),
-                        'disk' => 'supabase',
-                        'path' => $path,
-                    ]);
-
-                    return response()->json(['message' => 'فشل رفع الصورة. حاول مرة أخرى'], 500);
-                }
 
                 $oldAvatarToDelete = $user->avatar;
                 $newAvatarPath = $path;
@@ -77,11 +59,10 @@ class ProfileController extends Controller
                     'filename' => $file->getClientOriginalName(),
                     'mime' => $file->getMimeType(),
                     'disk' => 'supabase',
-                    'path' => $path,
                     'exception' => $exception->getMessage(),
                 ]);
 
-                return response()->json(['message' => 'فشل رفع الصورة. حاول مرة أخرى'], 500);
+                return response()->json(['message' => 'فشل رفع الصورة. تحقق من إعدادات التخزين ثم حاول مرة أخرى'], 500);
             }
         }
 

@@ -8,12 +8,12 @@ use App\Models\AdImage;
 use App\Models\Category;
 use Illuminate\Http\Request;
 use App\Http\Resources\AdResource;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use App\Jobs\ProcessAdImage;
+use App\Services\ImageStorageService;
 use App\Services\SavedSearchNotifier;
 
 class AdController extends Controller
@@ -426,21 +426,36 @@ class AdController extends Controller
         return AdResource::collection($ads);
     }
 
-    public function uploadImage(Request $request)
+    public function uploadImage(Request $request, ImageStorageService $imageStorage)
     {
         $request->validate([
             'image' => 'required|image|max:10240', // Max 10MB
         ]);
 
         if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('ads', 'supabase');
-            return response()->json([
-                'path' => $path,
-                'url' => Storage::disk('supabase')->url($path)
-            ]);
+            try {
+                $path = $imageStorage->uploadPublicImage($request->file('image'), 'ads', [
+                    'user_id' => $request->user()?->id,
+                    'type' => 'ad_image',
+                ]);
+
+                return response()->json([
+                    'path' => $path,
+                    'url' => $imageStorage->publicUrl($path),
+                ]);
+            } catch (\Throwable $exception) {
+                Log::error('Ad image upload exception', [
+                    'user_id' => $request->user()?->id,
+                    'exception' => $exception->getMessage(),
+                ]);
+
+                return response()->json([
+                    'message' => 'فشل رفع صورة الإعلان. تحقق من إعدادات التخزين ثم حاول مرة أخرى',
+                ], 500);
+            }
         }
 
-        return response()->json(['message' => 'No image uploaded'], 400);
+        return response()->json(['message' => 'لم يتم إرسال صورة للرفع'], 400);
     }
 
     public function suggest(Request $request)

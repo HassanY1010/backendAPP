@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class AdImage extends Model
 {
@@ -40,14 +42,15 @@ class AdImage extends Model
      */
     public function getImageUrlAttribute()
     {
-        if (!$this->image_path)
+        if (!$this->image_path) {
             return null;
+        }
 
-        // Manually construct Supabase public URL
-        // Format: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
-        $supabaseUrl = env('SUPABASE_URL');
-        $bucket = 'uploads';
-        return "{$supabaseUrl}/storage/v1/object/public/{$bucket}/{$this->image_path}";
+        if (Str::startsWith($this->image_path, ['http://', 'https://'])) {
+            return $this->image_path;
+        }
+
+        return Storage::disk('supabase')->url($this->image_path);
     }
 
     /**
@@ -62,10 +65,11 @@ class AdImage extends Model
             return $this->image_url;
         }
 
-        // Manually construct Supabase public URL for thumbnail
-        $supabaseUrl = env('SUPABASE_URL');
-        $bucket = 'uploads';
-        return "{$supabaseUrl}/storage/v1/object/public/{$bucket}/{$this->thumbnail_path}";
+        if (Str::startsWith($this->thumbnail_path, ['http://', 'https://'])) {
+            return $this->thumbnail_path;
+        }
+
+        return Storage::disk('supabase')->url($this->thumbnail_path);
     }
 
     /**
@@ -75,10 +79,10 @@ class AdImage extends Model
     {
         static::deleted(function ($image) {
             if ($image->image_path) {
-                \Illuminate\Support\Facades\Storage::disk('supabase')->delete($image->image_path);
+                Storage::disk('supabase')->delete($image->image_path);
             }
             if ($image->thumbnail_path) {
-                \Illuminate\Support\Facades\Storage::disk('supabase')->delete($image->thumbnail_path);
+                Storage::disk('supabase')->delete($image->thumbnail_path);
             }
         });
     }

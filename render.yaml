@@ -50,11 +50,13 @@ services:
       - key: SUPABASE_URL
         value: https://seilhifvqmfusegrpeqd.supabase.co
       - key: SUPABASE_STORAGE_KEY
-        value: seilhifvqmfusegrpeqd
+        sync: false
       - key: SUPABASE_STORAGE_SECRET
         sync: false
       - key: SUPABASE_STORAGE_ENDPOINT
         value: https://seilhifvqmfusegrpeqd.supabase.co/storage/v1/s3
+      - key: SUPABASE_STORAGE_REGION
+        value: us-east-1
       - key: SUPABASE_STORAGE_BUCKET
         value: uploads
       # Pusher
