@@ -15,6 +15,9 @@ use App\Http\Controllers\API\SavedSearchController;
 
 Route::get('/health', fn () => response()->json(['status' => 'ok']));
 
+// Storage Health Check — للتشخيص السريع (بدون auth)
+Route::get('/health/storage', [AdController::class, 'storageHealth']);
+
 // App Reviews
 Route::post('/app-reviews', [AppReviewController::class , 'store'])->middleware('throttle:5,1');
 

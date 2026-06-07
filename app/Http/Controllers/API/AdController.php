@@ -429,33 +429,45 @@ class AdController extends Controller
     public function uploadImage(Request $request, ImageStorageService $imageStorage)
     {
         $request->validate([
-            'image' => 'required|image|max:10240', // Max 10MB
+            'image' => 'required|image|mimes:jpeg,png,webp,gif|max:10240', // Max 10MB
         ]);
 
         if ($request->hasFile('image')) {
             try {
                 $path = $imageStorage->uploadPublicImage($request->file('image'), 'ads', [
                     'user_id' => $request->user()?->id,
-                    'type' => 'ad_image',
+                    'type'    => 'ad_image',
                 ]);
 
                 return response()->json([
                     'path' => $path,
-                    'url' => $imageStorage->publicUrl($path),
+                    'url'  => $imageStorage->publicUrl($path),
                 ]);
             } catch (\Throwable $exception) {
                 Log::error('Ad image upload exception', [
-                    'user_id' => $request->user()?->id,
+                    'user_id'   => $request->user()?->id,
                     'exception' => $exception->getMessage(),
+                    'file'      => $request->file('image')?->getClientOriginalName(),
+                    'size'      => $request->file('image')?->getSize(),
                 ]);
 
                 return response()->json([
-                    'message' => 'فشل رفع صورة الإعلان. تحقق من إعدادات التخزين ثم حاول مرة أخرى',
+                    'message' => $exception->getMessage(),
                 ], 500);
             }
         }
 
         return response()->json(['message' => 'لم يتم إرسال صورة للرفع'], 400);
+    }
+
+    /**
+     * Health Check لـ Storage — مفيد للتشخيص
+     */
+    public function storageHealth(ImageStorageService $imageStorage)
+    {
+        $result = $imageStorage->healthCheck();
+        $status = $result['status'] === 'ok' ? 200 : 500;
+        return response()->json($result, $status);
     }
 
     public function suggest(Request $request)
