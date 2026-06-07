@@ -276,7 +276,7 @@ class AuthController extends Controller
         $pass = config('services.sms.password');
         $message = "رمز التحقق الخاص بك هو: $code";
 
-        // Send SMS
+        // Send SMS with a short timeout to prevent blocking the mobile app client
         try {
             if (!$gatewayUrl) {
                 \Log::warning("SMS Gateway URL is null. Skipping SMS send for $phone.");
@@ -286,9 +286,9 @@ class AuthController extends Controller
                 ]);
             }
 
-            // Send SMS with retry logic and explicit timeout
-            $response = \Illuminate\Support\Facades\Http::timeout(15)
-                ->retry(2, 500) // Retry up to 2 times with 500ms delay
+            // We use a short timeout of 5 seconds so the user is not left waiting.
+            // If the gateway is slow, we log it but optimistically tell the client it was initiated.
+            $response = \Illuminate\Support\Facades\Http::timeout(5)
                 ->get($gatewayUrl, [
                     'orgName' => $org,
                     'userName' => $apiUser,
@@ -301,31 +301,24 @@ class AuthController extends Controller
             $responseBody = $response->body();
 
             if ($response->successful()) {
-                // Determine if we should treat this as a success.
-                // Optimistic approach: if the HTTP request worked, assume the message was queued/sent 
-                // unless we find a known fatal error code (like 1702, 1703).
                 $isExplicitError = str_contains($responseBody, '1702') || str_contains($responseBody, '1703');
 
                 if (!$isExplicitError) {
                     Log::info('SMS OTP accepted by gateway', ['phone' => $phone]);
                 } else {
-                    Log::error('SMS Gateway explicit error', ['phone' => $phone]);
+                    Log::error('SMS Gateway explicit error', ['phone' => $phone, 'response' => $responseBody]);
                     return response()->json([
                         'message' => 'تعذر إرسال الرمز حالياً، يرجى التأكد من صحة الرقم أو المحاولة لاحقاً.',
                     ], 400);
                 }
             } else {
-                \Log::error("SMS Gateway connection error for $phone: Code " . $response->status());
-                return response()->json([
-                    'message' => 'بوابة الرسائل غير متوفرة حالياً، يرجى المحاولة مرة أخرى.',
-                ], 503);
+                \Log::error("SMS Gateway response error for $phone: Code " . $response->status());
+                // Optimistic fallback: even if gateway responds with error, we still proceed so the client gets the screen
+                Log::info('Proceeding optimistically despite gateway status code error', ['phone' => $phone]);
             }
         } catch (\Exception $e) {
-            \Log::error("SMS Exception for $phone: " . $e->getMessage());
-            return response()->json([
-                'message' => 'Unable to connect to SMS service.',
-                'status' => 'connection_failed'
-            ], 503);
+            \Log::warning("SMS Gateway request timed out or failed for $phone: " . $e->getMessage() . ". Proceeding optimistically.");
+            // We do not fail the request if it's just a timeout/slow gateway. The SMS might still be processed by the carrier.
         }
 
         return response()->json([
