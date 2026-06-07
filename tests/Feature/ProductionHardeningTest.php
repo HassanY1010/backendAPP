@@ -176,6 +176,21 @@ class ProductionHardeningTest extends TestCase
         $this->assertNull($user->otp_expires_at);
     }
 
+    public function test_send_otp_rejects_numbers_not_supported_by_current_sms_gateway(): void
+    {
+        $this->fakeSmsGateway();
+
+        $this->postJson('/api/v1/auth/send-otp', [
+            'phone' => '+966555555555',
+        ])->assertStatus(422);
+
+        Http::assertNothingSent();
+
+        $this->assertDatabaseMissing('users', [
+            'phone' => '+966555555555',
+        ]);
+    }
+
     public function test_otp_locks_after_repeated_failures_without_logging_plaintext(): void
     {
         $user = User::factory()->create([

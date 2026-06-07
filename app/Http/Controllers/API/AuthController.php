@@ -335,9 +335,9 @@ class AuthController extends Controller
         $phone = $this->normalizePhone((string) $request->phone);
 
         $validator = Validator::make(['phone' => $phone], [
-            'phone' => ['required', 'string', 'regex:/^\+(967[0-9]{9}|966[0-9]{9})$/'],
+            'phone' => ['required', 'string', 'regex:/^\+967(70|71|73|77)[0-9]{7}$/'],
         ], [
-            'phone.regex' => 'رقم الهاتف غير صحيح. يجب أن يبدأ بـ +967 (اليمن) أو +966 (السعودية) ويتكون من 13 خانة.',
+            'phone.regex' => 'رقم الهاتف غير مدعوم. بوابة الرسائل الحالية تدعم أرقام اليمن فقط بالبادئات 70 أو 71 أو 73 أو 77.',
         ]);
 
         if ($validator->fails()) {
