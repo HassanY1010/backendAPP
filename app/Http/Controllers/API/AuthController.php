@@ -3,36 +3,126 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\AdResource;
+use App\Http\Resources\UserResource;
+use App\Models\Review;
 use App\Models\User;
 use App\Models\UserSession;
-use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
     private const USER_TOKEN_TTL_DAYS = 30;
+
     private const ADMIN_TOKEN_TTL_HOURS = 8;
+
     private const OTP_MAX_ATTEMPTS = 5;
+
     private const OTP_LOCK_MINUTES = 15;
+
+    private const SMS_GATEWAY_TIMEOUT_SECONDS = 15;
 
     private function normalizePhone(string $phone): string
     {
-        $phone = str_replace(['+', ' ', '-'], '', $phone);
+        $phone = preg_replace('/\D+/', '', $phone) ?? '';
 
         if (str_starts_with($phone, '00')) {
             $phone = substr($phone, 2);
         }
 
         if (str_starts_with($phone, '9670')) {
-            $phone = '967' . substr($phone, 4);
+            $phone = '967'.substr($phone, 4);
         } elseif (str_starts_with($phone, '9660')) {
-            $phone = '966' . substr($phone, 4);
+            $phone = '966'.substr($phone, 4);
         }
 
-        return '+' . $phone;
+        return '+'.$phone;
+    }
+
+    private function phoneForSmsGateway(string $normalizedPhone): string
+    {
+        return ltrim($normalizedPhone, '+');
+    }
+
+    private function maskPhone(string $phone): string
+    {
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+
+        if (strlen($digits) <= 4) {
+            return '****';
+        }
+
+        return '+'.substr($digits, 0, 3)
+            .str_repeat('*', max(strlen($digits) - 7, 0))
+            .substr($digits, -4);
+    }
+
+    private function parseSmsGatewayResponse(string $body): array
+    {
+        $body = trim($body);
+
+        if (preg_match('/(?:^|\s)(\d+)\s*:\s*([A-Z_]+)(?::\s*([^\s:]+))?/i', $body, $matches)) {
+            $code = $matches[1];
+            $message = strtoupper($matches[2]);
+
+            return [
+                'accepted' => $code === '0' && $message === 'SUCCESS',
+                'code' => $code,
+                'message' => $message,
+                'message_id' => $matches[3] ?? null,
+                'raw' => $body,
+            ];
+        }
+
+        return [
+            'accepted' => false,
+            'code' => null,
+            'message' => 'UNPARSEABLE_RESPONSE',
+            'message_id' => null,
+            'raw' => $body,
+        ];
+    }
+
+    private function redactSmsLogText(string $text): string
+    {
+        return preg_replace(
+            '/([?&](?:orgName|userName|password|mobileNo|text)=)[^&\s]+/i',
+            '$1[redacted]',
+            $text
+        ) ?? 'redacted';
+    }
+
+    private function smsFailureStatus(array $gatewayResult): int
+    {
+        return match ($gatewayResult['code'] ?? null) {
+            '2', '3' => 422,
+            default => 503,
+        };
+    }
+
+    private function smsFailureMessage(array $gatewayResult): string
+    {
+        return match ($gatewayResult['code'] ?? null) {
+            '2' => 'رقم الهاتف غير صحيح. يرجى التأكد من عدد الأرقام ثم المحاولة مرة أخرى.',
+            '3' => 'رقم الهاتف غير مدعوم من مزود الرسائل الحالي.',
+            default => 'تعذر إرسال رمز التحقق حالياً، يرجى المحاولة لاحقاً.',
+        };
+    }
+
+    private function clearPendingOtp(User $user): void
+    {
+        $user->forceFill([
+            'otp' => null,
+            'otp_expires_at' => null,
+            'otp_attempts' => 0,
+            'otp_locked_until' => null,
+        ])->save();
     }
 
     private function recordSession(User $user, Request $request): void
@@ -73,11 +163,11 @@ class AuthController extends Controller
 
         $user = User::where('phone', $request->phone)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'بيانات الدخول غير صحيحة'], 401);
         }
 
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json(['message' => 'Account is disabled'], 403);
         }
 
@@ -111,7 +201,7 @@ class AuthController extends Controller
 
         $user = User::where('phone', $request->phone)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'بيانات الدخول غير صحيحة'], 401);
         }
 
@@ -119,7 +209,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'غير مصرح لك بالدخول كمدير'], 403);
         }
 
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json(['message' => 'Account is disabled'], 403);
         }
 
@@ -149,7 +239,7 @@ class AuthController extends Controller
     public function guestLogin(Request $request)
     {
         // Create a unique guest user
-        $guestPhone = 'guest_' . Str::uuid();
+        $guestPhone = 'guest_'.Str::uuid();
 
         $user = User::create([
             'phone' => $guestPhone,
@@ -194,7 +284,7 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
-            'message' => 'Logged out successfully'
+            'message' => 'Logged out successfully',
         ]);
     }
 
@@ -212,7 +302,7 @@ class AuthController extends Controller
             'query' => 'required|string|min:2',
         ]);
 
-        $users = User::where('name', 'like', '%' . $request->query('query') . '%')
+        $users = User::where('name', 'like', '%'.$request->query('query').'%')
             ->where('role', '!=', 'guest')
             ->select('id', 'name', 'avatar', 'is_active')
             ->take(10)
@@ -231,11 +321,12 @@ class AuthController extends Controller
 
         return response()->json([
             'user' => new UserResource($user),
-            'ads' => \App\Http\Resources\AdResource::collection(
+            'ads' => AdResource::collection(
                 $user->ads()->with(['category', 'mainImage'])->latest()->take(20)->get()
-            )
+            ),
         ]);
     }
+
     /**
      * Send OTP Verification Code
      */
@@ -243,8 +334,7 @@ class AuthController extends Controller
     {
         $phone = $this->normalizePhone((string) $request->phone);
 
-        // 2. Validate normalized phone (+ sign then 12 digits for Yemen/Saudi)
-        $validator = \Illuminate\Support\Facades\Validator::make(['phone' => $phone], [
+        $validator = Validator::make(['phone' => $phone], [
             'phone' => ['required', 'string', 'regex:/^\+(967[0-9]{9}|966[0-9]{9})$/'],
         ], [
             'phone.regex' => 'رقم الهاتف غير صحيح. يجب أن يبدأ بـ +967 (اليمن) أو +966 (السعودية) ويتكون من 13 خانة.',
@@ -254,12 +344,34 @@ class AuthController extends Controller
             return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
-        $code = (string) rand(100000, 999999);
+        $gatewayUrl = config('services.sms.gateway_url');
+        $org = config('services.sms.org_name');
+        $apiUser = config('services.sms.user_name');
+        $pass = config('services.sms.password');
 
-        // Find or create user
+        if (! $gatewayUrl || ! $org || ! $apiUser || ! $pass) {
+            Log::error('SMS gateway configuration is incomplete', [
+                'missing' => array_keys(array_filter([
+                    'gateway_url' => ! $gatewayUrl,
+                    'org_name' => ! $org,
+                    'user_name' => ! $apiUser,
+                    'password' => ! $pass,
+                ])),
+            ]);
+
+            return response()->json([
+                'message' => 'خدمة الرسائل غير مهيأة حالياً. يرجى التواصل مع الدعم.',
+                'status' => 'sms_not_configured',
+            ], 503);
+        }
+
+        $code = (string) random_int(100000, 999999);
+        $message = "رمز التحقق الخاص بك هو: $code";
+        $gatewayPhone = $this->phoneForSmsGateway($phone);
+
         $user = User::firstOrCreate(
             ['phone' => $phone],
-            ['name' => 'User ' . substr($phone, -4)] // Placeholder name
+            ['name' => 'User '.substr($phone, -4)]
         );
 
         $user->forceFill([
@@ -269,62 +381,77 @@ class AuthController extends Controller
             'otp_locked_until' => null,
         ])->save();
 
-        // API Credentials from config
-        $gatewayUrl = config('services.sms.gateway_url');
-        $org = config('services.sms.org_name');
-        $apiUser = config('services.sms.user_name');
-        $pass = config('services.sms.password');
-        $message = "رمز التحقق الخاص بك هو: $code";
-
-        // Send SMS with a short timeout to prevent blocking the mobile app client
         try {
-            if (!$gatewayUrl) {
-                \Log::warning("SMS Gateway URL is null. Skipping SMS send for $phone.");
-                return response()->json([
-                    'message' => 'OTP generated but SMS service is not configured',
-                    'status' => 'generated_no_sms',
-                ]);
-            }
-
-            // We use a short timeout of 5 seconds so the user is not left waiting.
-            // If the gateway is slow, we log it but optimistically tell the client it was initiated.
-            $response = \Illuminate\Support\Facades\Http::timeout(5)
+            $response = Http::timeout(self::SMS_GATEWAY_TIMEOUT_SECONDS)
+                ->retry(2, 500, null, false)
                 ->get($gatewayUrl, [
                     'orgName' => $org,
                     'userName' => $apiUser,
                     'password' => $pass,
-                    'mobileNo' => $phone,
+                    'mobileNo' => $gatewayPhone,
                     'text' => $message,
                     'coding' => '2',
                 ]);
 
             $responseBody = $response->body();
 
-            if ($response->successful()) {
-                $isExplicitError = str_contains($responseBody, '1702') || str_contains($responseBody, '1703');
+            if (! $response->successful()) {
+                $this->clearPendingOtp($user);
 
-                if (!$isExplicitError) {
-                    Log::info('SMS OTP accepted by gateway', ['phone' => $phone]);
-                } else {
-                    Log::error('SMS Gateway explicit error', ['phone' => $phone, 'response' => $responseBody]);
-                    return response()->json([
-                        'message' => 'تعذر إرسال الرمز حالياً، يرجى التأكد من صحة الرقم أو المحاولة لاحقاً.',
-                    ], 400);
-                }
-            } else {
-                \Log::error("SMS Gateway response error for $phone: Code " . $response->status());
-                // Optimistic fallback: even if gateway responds with error, we still proceed so the client gets the screen
-                Log::info('Proceeding optimistically despite gateway status code error', ['phone' => $phone]);
+                Log::error('SMS gateway returned HTTP error', [
+                    'phone' => $this->maskPhone($phone),
+                    'http_status' => $response->status(),
+                    'gateway_body' => mb_substr($responseBody, 0, 200),
+                ]);
+
+                return response()->json([
+                    'message' => 'بوابة الرسائل غير متوفرة حالياً، يرجى المحاولة مرة أخرى.',
+                    'status' => 'sms_gateway_http_error',
+                ], 503);
             }
-        } catch (\Exception $e) {
-            \Log::warning("SMS Gateway request timed out or failed for $phone: " . $e->getMessage() . ". Proceeding optimistically.");
-            // We do not fail the request if it's just a timeout/slow gateway. The SMS might still be processed by the carrier.
+
+            $gatewayResult = $this->parseSmsGatewayResponse($responseBody);
+
+            if (! $gatewayResult['accepted']) {
+                $this->clearPendingOtp($user);
+
+                Log::error('SMS gateway rejected OTP', [
+                    'phone' => $this->maskPhone($phone),
+                    'gateway_code' => $gatewayResult['code'],
+                    'gateway_message' => $gatewayResult['message'],
+                    'gateway_body' => mb_substr($gatewayResult['raw'], 0, 200),
+                ]);
+
+                return response()->json([
+                    'message' => $this->smsFailureMessage($gatewayResult),
+                    'status' => 'sms_gateway_rejected',
+                    'gateway_code' => $gatewayResult['code'],
+                    'gateway_message' => $gatewayResult['message'],
+                ], $this->smsFailureStatus($gatewayResult));
+            }
+
+            Log::info('SMS OTP accepted by gateway', [
+                'phone' => $this->maskPhone($phone),
+                'message_id' => $gatewayResult['message_id'],
+            ]);
+        } catch (\Throwable $e) {
+            $this->clearPendingOtp($user);
+
+            Log::error('SMS gateway request failed', [
+                'phone' => $this->maskPhone($phone),
+                'exception' => get_class($e),
+                'error' => $this->redactSmsLogText($e->getMessage()),
+            ]);
+
+            return response()->json([
+                'message' => 'تعذر الاتصال بخدمة الرسائل حالياً، يرجى المحاولة مرة أخرى.',
+                'status' => 'sms_gateway_connection_failed',
+            ], 503);
         }
 
         return response()->json([
-            'message' => 'OTP sent successfully',
+            'message' => 'تم إرسال رمز التحقق بنجاح.',
             'status' => 'sent',
-            // 'debug_code' => $code // REMOVED FOR SECURITY
         ]);
     }
 
@@ -342,29 +469,30 @@ class AuthController extends Controller
 
         $user = User::where('phone', $phone)->first();
 
-        if (!$user) {
+        if (! $user) {
             \Log::warning("Verify OTP: User not found for normalized phone: $phone (Original: {$request->phone})");
+
             return response()->json([
                 'message' => 'المستخدم غير موجود. تأكد من إدخال نفس الرقم الصحيح.',
-                'valid' => false
+                'valid' => false,
             ], 404);
         }
 
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json([
                 'message' => 'Account is disabled',
-                'valid' => false
+                'valid' => false,
             ], 403);
         }
 
         if ($user->otp_locked_until && now()->lt($user->otp_locked_until)) {
             return response()->json([
                 'message' => 'Too many OTP attempts. Try again later.',
-                'valid' => false
+                'valid' => false,
             ], 429);
         }
 
-        if (!$user->otp || !Hash::check($request->code, $user->otp)) {
+        if (! $user->otp || ! Hash::check($request->code, $user->otp)) {
             $attempts = ((int) $user->otp_attempts) + 1;
             $user->forceFill([
                 'otp_attempts' => $attempts,
@@ -374,17 +502,19 @@ class AuthController extends Controller
             ])->save();
 
             Log::warning('Verify OTP failed: code mismatch', ['phone' => $phone, 'attempts' => $attempts]);
+
             return response()->json([
                 'message' => 'كود التحقق غير صحيح.',
-                'valid' => false
+                'valid' => false,
             ], 400);
         }
 
-        if (!$user->otp_expires_at || now()->gt($user->otp_expires_at)) {
-            \Log::warning("Verify OTP: Code expired for $phone. Expires: {$user->otp_expires_at}, Now: " . now());
+        if (! $user->otp_expires_at || now()->gt($user->otp_expires_at)) {
+            \Log::warning("Verify OTP: Code expired for $phone. Expires: {$user->otp_expires_at}, Now: ".now());
+
             return response()->json([
                 'message' => 'كود التحقق انتهت صلاحيته.',
-                'valid' => false
+                'valid' => false,
             ], 400);
         }
 
@@ -437,9 +567,10 @@ class AuthController extends Controller
             });
 
         return response()->json([
-            'data' => $sessions
+            'data' => $sessions,
         ]);
     }
+
     /**
      * Get user dashboard stats and recent activity
      */
@@ -448,13 +579,13 @@ class AuthController extends Controller
         $user = $request->user();
         $cacheKey = "user_dashboard_stats_{$user->id}";
 
-        return \Illuminate\Support\Facades\Cache::remember($cacheKey, 600, function () use ($user) {
+        return Cache::remember($cacheKey, 600, function () use ($user) {
             // 1. Calculate Stats efficiently
             $stats = [
                 'total_ads' => $user->ads()->count(),
                 'total_sold' => $user->ads()->where('status', 'sold')->count(),
                 'total_buyers' => $user->receivedMessages()->distinct('sender_id')->count('sender_id'),
-                'rating' => round(\App\Models\Review::where('reviewed_id', $user->id)->avg('rating') ?? 0, 1),
+                'rating' => round(Review::where('reviewed_id', $user->id)->avg('rating') ?? 0, 1),
             ];
 
             // 2. Calculate Achievements
@@ -487,7 +618,7 @@ class AuthController extends Controller
 
             // 3. Build Recent Activity
             $recentAds = $user->ads()->latest()->take(5)->get();
-            $recentReviews = \App\Models\Review::where('reviewed_id', $user->id)
+            $recentReviews = Review::where('reviewed_id', $user->id)
                 ->with('reviewer:id,name')
                 ->latest()
                 ->take(5)
@@ -498,31 +629,32 @@ class AuthController extends Controller
                     [
                         'type' => 'ad_created',
                         'title' => 'إعلان جديد',
-                        'description' => 'تم إضافة إعلان: ' . \Illuminate\Support\Str::limit($ad->title, 30),
+                        'description' => 'تم إضافة إعلان: '.Str::limit($ad->title, 30),
                         'time' => $ad->created_at->diffForHumans(),
                         'timestamp' => $ad->created_at,
                         'icon_code' => 57415,
                         'color_hex' => '#10B981',
-                    ]
+                    ],
                 ];
 
                 if ($ad->status === 'sold') {
                     $acts[] = [
                         'type' => 'ad_sold',
                         'title' => 'بيع ناجح',
-                        'description' => 'تم بيع: ' . \Illuminate\Support\Str::limit($ad->title, 30),
+                        'description' => 'تم بيع: '.Str::limit($ad->title, 30),
                         'time' => $ad->updated_at->diffForHumans(),
                         'timestamp' => $ad->updated_at,
                         'icon_code' => 58784,
                         'color_hex' => '#8B5CF6',
                     ];
                 }
+
                 return $acts;
             })->concat($recentReviews->map(function ($review) {
                 return [
                     'type' => 'review_received',
                     'title' => 'تقييم جديد',
-                    'description' => 'حصلت على تقييم ' . $review->rating . ' نجوم من ' . ($review->reviewer->name ?? 'مستخدم'),
+                    'description' => 'حصلت على تقييم '.$review->rating.' نجوم من '.($review->reviewer->name ?? 'مستخدم'),
                     'time' => $review->created_at->diffForHumans(),
                     'timestamp' => $review->created_at,
                     'icon_code' => 57921,
@@ -547,7 +679,7 @@ class AuthController extends Controller
             return [
                 'stats' => $stats,
                 'achievements' => $achievements,
-                'activities' => $sortedActivities
+                'activities' => $sortedActivities,
             ];
         });
     }

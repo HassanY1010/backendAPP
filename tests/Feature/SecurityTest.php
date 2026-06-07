@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\MassAssignmentException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
+use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
+use Tests\TestCase;
 
 class SecurityTest extends TestCase
 {
@@ -23,7 +25,7 @@ class SecurityTest extends TestCase
             $user->fill(['role' => 'admin']);
             // If fill doesn't throw, check the role was not changed
             $this->assertNotEquals('admin', $user->role, 'Role should not be changeable via mass assignment');
-        } catch (\Illuminate\Database\Eloquent\MassAssignmentException $e) {
+        } catch (MassAssignmentException $e) {
             // This is the expected secure behavior
             $this->assertTrue(true);
         }
@@ -39,7 +41,7 @@ class SecurityTest extends TestCase
 
         $response = $this->postJson('/api/v1/messages/send', [
             'receiver_id' => 999,
-            'message'     => 'Hello',
+            'message' => 'Hello',
         ]);
 
         $response->assertStatus(403);
@@ -84,9 +86,20 @@ class SecurityTest extends TestCase
      */
     public function test_otp_rate_limit(): void
     {
+        config([
+            'services.sms.gateway_url' => 'https://sms.test/MainServlet',
+            'services.sms.org_name' => 'test-org',
+            'services.sms.user_name' => 'test-user',
+            'services.sms.password' => 'test-password',
+        ]);
+
+        Http::fake([
+            'https://sms.test/*' => Http::response('0:SUCCESS:rate-limit-test', 200),
+        ]);
+
         for ($i = 0; $i < 6; $i++) {
             $response = $this->postJson('/api/v1/auth/send-otp', [
-                'phone' => '+9671234567890',
+                'phone' => '+967777777785',
             ]);
         }
 

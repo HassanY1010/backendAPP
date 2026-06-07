@@ -2,24 +2,38 @@
 
 namespace Tests\Feature;
 
-use App\Models\Conversation;
 use App\Models\Ad;
 use App\Models\Category;
-use App\Models\Message;
 use App\Models\Notification;
 use App\Models\Review;
 use App\Models\SavedSearch;
 use App\Models\User;
 use App\Models\UserSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ProductionHardeningTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function fakeSmsGateway(string $body = '0:SUCCESS:123456', int $status = 200): void
+    {
+        config([
+            'services.sms.gateway_url' => 'https://sms.test/MainServlet',
+            'services.sms.org_name' => 'test-org',
+            'services.sms.user_name' => 'test-user',
+            'services.sms.password' => 'test-password',
+        ]);
+
+        Http::fake([
+            'https://sms.test/*' => Http::response($body, $status),
+        ]);
+    }
 
     public function test_login_does_not_expose_password_and_records_valid_session(): void
     {
@@ -70,9 +84,20 @@ class ProductionHardeningTest extends TestCase
 
     public function test_send_otp_stores_hash_not_plaintext_and_verify_clears_it(): void
     {
+        $this->fakeSmsGateway();
+
         $this->postJson('/api/v1/auth/send-otp', [
             'phone' => '+967777777779',
-        ])->assertOk();
+        ])->assertOk()
+            ->assertJsonPath('status', 'sent');
+
+        Http::assertSent(function ($request) {
+            $data = $request->data();
+
+            return ($data['mobileNo'] ?? null) === '967777777779'
+                && ($data['coding'] ?? null) === '2'
+                && str_contains((string) ($data['text'] ?? ''), 'رمز التحقق');
+        });
 
         $user = User::where('phone', '+967777777779')->firstOrFail();
         $this->assertNotNull($user->otp);
@@ -94,6 +119,61 @@ class ProductionHardeningTest extends TestCase
             ->assertJsonPath('valid', true);
 
         $this->assertNull($user->fresh()->otp);
+    }
+
+    public function test_send_otp_rejects_gateway_failure_and_clears_pending_code(): void
+    {
+        $this->fakeSmsGateway('5:NO_CREDIT');
+
+        $this->postJson('/api/v1/auth/send-otp', [
+            'phone' => '+967777777783',
+        ])->assertStatus(503)
+            ->assertJsonPath('status', 'sms_gateway_rejected')
+            ->assertJsonPath('gateway_code', '5');
+
+        $user = User::where('phone', '+967777777783')->firstOrFail();
+
+        $this->assertNull($user->otp);
+        $this->assertNull($user->otp_expires_at);
+    }
+
+    public function test_send_otp_rejects_gateway_http_failure_and_clears_pending_code(): void
+    {
+        $this->fakeSmsGateway('Service unavailable', 500);
+
+        $this->postJson('/api/v1/auth/send-otp', [
+            'phone' => '+967777777784',
+        ])->assertStatus(503)
+            ->assertJsonPath('status', 'sms_gateway_http_error');
+
+        $user = User::where('phone', '+967777777784')->firstOrFail();
+
+        $this->assertNull($user->otp);
+        $this->assertNull($user->otp_expires_at);
+    }
+
+    public function test_send_otp_rejects_gateway_connection_failure_and_clears_pending_code(): void
+    {
+        config([
+            'services.sms.gateway_url' => 'https://sms.test/MainServlet',
+            'services.sms.org_name' => 'test-org',
+            'services.sms.user_name' => 'test-user',
+            'services.sms.password' => 'test-password',
+        ]);
+
+        Http::fake(function () {
+            throw new ConnectionException('cURL error 28 for https://sms.test/MainServlet?password=secret&mobileNo=967777777786&text=123456');
+        });
+
+        $this->postJson('/api/v1/auth/send-otp', [
+            'phone' => '+967777777786',
+        ])->assertStatus(503)
+            ->assertJsonPath('status', 'sms_gateway_connection_failed');
+
+        $user = User::where('phone', '+967777777786')->firstOrFail();
+
+        $this->assertNull($user->otp);
+        $this->assertNull($user->otp_expires_at);
     }
 
     public function test_otp_locks_after_repeated_failures_without_logging_plaintext(): void
