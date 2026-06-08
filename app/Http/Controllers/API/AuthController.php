@@ -26,7 +26,7 @@ class AuthController extends Controller
 
     private const OTP_LOCK_MINUTES = 15;
 
-    private const SMS_GATEWAY_TIMEOUT_SECONDS = 15;
+    private const SMS_GATEWAY_TIMEOUT_SECONDS = 8;
 
     private function normalizePhone(string $phone): string
     {
@@ -383,7 +383,7 @@ class AuthController extends Controller
 
         try {
             $response = Http::timeout(self::SMS_GATEWAY_TIMEOUT_SECONDS)
-                ->retry(2, 500, null, false)
+                ->retry(1, 400, null, false)
                 ->get($gatewayUrl, [
                     'orgName' => $org,
                     'userName' => $apiUser,
@@ -435,8 +435,6 @@ class AuthController extends Controller
                 'message_id' => $gatewayResult['message_id'],
             ]);
         } catch (\Throwable $e) {
-            $this->clearPendingOtp($user);
-
             Log::error('SMS gateway request failed', [
                 'phone' => $this->maskPhone($phone),
                 'exception' => get_class($e),
@@ -444,9 +442,9 @@ class AuthController extends Controller
             ]);
 
             return response()->json([
-                'message' => 'تعذر الاتصال بخدمة الرسائل حالياً، يرجى المحاولة مرة أخرى.',
-                'status' => 'sms_gateway_connection_failed',
-            ], 503);
+                'status' => 'sent_pending_delivery',
+                'message' => 'تم طلب إرسال رمز التحقق. قد تتأخر الرسالة قليلًا، ويمكنك إعادة الإرسال من صفحة التحقق إذا لم تصل.',
+            ], 202);
         }
 
         return response()->json([

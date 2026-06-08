@@ -169,59 +169,70 @@ class ProfileController extends Controller
     {
         try {
             $user = $request->user();
+            $recordLimit = 80;
 
-            $ads = $user->ads()
+            $adsBaseQuery = $user->ads();
+            $favoritesBaseQuery = $user->favorites();
+            $reviewsBaseQuery = $user->reviewsReceived();
+            $notificationsBaseQuery = $user->notifications();
+            $savedSearchesBaseQuery = $user->savedSearches();
+            $sessionsBaseQuery = UserSession::where('user_id', $user->id);
+
+            $ads = (clone $adsBaseQuery)
                 ->with(['category:id,title', 'images'])
                 ->withCount(['favoritedBy', 'comments'])
                 ->latest()
+                ->limit($recordLimit)
                 ->get();
 
-            $favorites = $user->favorites()
+            $favorites = (clone $favoritesBaseQuery)
                 ->with(['category:id,title', 'mainImage'])
                 ->withCount(['favoritedBy', 'comments'])
                 ->orderByPivot('created_at', 'desc')
+                ->limit($recordLimit)
                 ->get();
 
-            $reviews = $user->reviewsReceived()
+            $reviews = (clone $reviewsBaseQuery)
                 ->with(['reviewer:id,name', 'ad:id,title'])
                 ->latest()
+                ->limit($recordLimit)
                 ->get();
 
-            $notifications = $user->notifications()
+            $notifications = (clone $notificationsBaseQuery)
                 ->latest()
-                ->limit(50)
+                ->limit($recordLimit)
                 ->get();
 
-            $savedSearches = $user->savedSearches()
+            $savedSearches = (clone $savedSearchesBaseQuery)
                 ->latest()
-                ->limit(50)
+                ->limit($recordLimit)
                 ->get();
 
-            $sessions = UserSession::where('user_id', $user->id)
+            $sessions = (clone $sessionsBaseQuery)
                 ->orderByDesc('login_at')
-                ->limit(30)
+                ->limit($recordLimit)
                 ->get();
 
             $stats = [
-                'total_ads' => $ads->count(),
-                'active_ads' => $ads->where('status', 'active')->count(),
-                'pending_ads' => $ads->where('status', 'pending')->count(),
-                'sold_ads' => $ads->where('status', 'sold')->count(),
-                'rejected_ads' => $ads->where('status', 'rejected')->count(),
-                'expired_ads' => $ads->where('status', 'expired')->count(),
-                'inactive_ads' => $ads->where('status', 'inactive')->count(),
-                'featured_ads' => $ads->where('is_featured', true)->count(),
-                'total_views' => (int) $ads->sum('views'),
-                'total_favorites' => $favorites->count(),
+                'total_ads' => (clone $adsBaseQuery)->count(),
+                'active_ads' => (clone $adsBaseQuery)->where('status', 'active')->count(),
+                'pending_ads' => (clone $adsBaseQuery)->where('status', 'pending')->count(),
+                'sold_ads' => (clone $adsBaseQuery)->where('status', 'sold')->count(),
+                'rejected_ads' => (clone $adsBaseQuery)->where('status', 'rejected')->count(),
+                'expired_ads' => (clone $adsBaseQuery)->where('status', 'expired')->count(),
+                'inactive_ads' => (clone $adsBaseQuery)->where('status', 'inactive')->count(),
+                'featured_ads' => (clone $adsBaseQuery)->where('is_featured', true)->count(),
+                'total_views' => (int) (clone $adsBaseQuery)->sum('views'),
+                'total_favorites' => (clone $favoritesBaseQuery)->count(),
                 'followers_count' => $user->followers()->count(),
                 'following_count' => $user->following()->count(),
-                'reviews_count' => $reviews->count(),
-                'average_rating' => round((float) ($reviews->avg('rating') ?? 0), 2),
-                'notifications_total' => $user->notifications()->count(),
-                'notifications_unread' => $user->notifications()->where('is_read', false)->count(),
-                'saved_searches_count' => $user->savedSearches()->count(),
-                'sessions_count' => UserSession::where('user_id', $user->id)->count(),
-                'active_sessions_count' => UserSession::where('user_id', $user->id)
+                'reviews_count' => (clone $reviewsBaseQuery)->count(),
+                'average_rating' => round((float) ((clone $reviewsBaseQuery)->avg('rating') ?? 0), 2),
+                'notifications_total' => (clone $notificationsBaseQuery)->count(),
+                'notifications_unread' => (clone $notificationsBaseQuery)->where('is_read', false)->count(),
+                'saved_searches_count' => (clone $savedSearchesBaseQuery)->count(),
+                'sessions_count' => (clone $sessionsBaseQuery)->count(),
+                'active_sessions_count' => (clone $sessionsBaseQuery)
                     ->whereNull('logout_at')
                     ->count(),
                 'joined_date' => $user->created_at->format('Y-m-d'),
@@ -338,6 +349,10 @@ class ProfileController extends Controller
                         'user_agent' => $session->user_agent,
                     ];
                 }),
+                'export_limits' => [
+                    'records_per_section' => $recordLimit,
+                    'is_limited' => true,
+                ],
                 'exported_at' => now()->toIso8601String(),
             ]);
         } catch (\Exception $e) {

@@ -57,6 +57,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/profile/update', [ProfileController::class , 'update']);
                 Route::delete('/profile', [ProfileController::class , 'destroy']);
                 Route::get('/profile/export', [ProfileController::class , 'export']);
+                Route::post('/app-reviews', [AppReviewController::class , 'store'])->middleware('throttle:5,1');
 
                 // Ads
                 Route::post('/ads', [AdController::class, 'store'])

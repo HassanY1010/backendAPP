@@ -152,7 +152,7 @@ class ProductionHardeningTest extends TestCase
         $this->assertNull($user->otp_expires_at);
     }
 
-    public function test_send_otp_rejects_gateway_connection_failure_and_clears_pending_code(): void
+    public function test_send_otp_keeps_pending_code_when_gateway_delivery_is_uncertain(): void
     {
         config([
             'services.sms.gateway_url' => 'https://sms.test/MainServlet',
@@ -167,13 +167,13 @@ class ProductionHardeningTest extends TestCase
 
         $this->postJson('/api/v1/auth/send-otp', [
             'phone' => '+967777777786',
-        ])->assertStatus(503)
-            ->assertJsonPath('status', 'sms_gateway_connection_failed');
+        ])->assertStatus(202)
+            ->assertJsonPath('status', 'sent_pending_delivery');
 
         $user = User::where('phone', '+967777777786')->firstOrFail();
 
-        $this->assertNull($user->otp);
-        $this->assertNull($user->otp_expires_at);
+        $this->assertNotNull($user->otp);
+        $this->assertNotNull($user->otp_expires_at);
     }
 
     public function test_send_otp_rejects_numbers_not_supported_by_current_sms_gateway(): void
@@ -332,6 +332,23 @@ class ProductionHardeningTest extends TestCase
         $this->assertDatabaseHas('app_reviews', [
             'rating' => 5,
             'user_id' => null,
+        ]);
+    }
+
+    public function test_authenticated_user_can_submit_app_review_through_v1_route(): void
+    {
+        $user = User::factory()->create();
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/app-reviews', [
+            'rating' => 5,
+            'comment' => 'Great',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('app_reviews', [
+            'rating' => 5,
+            'user_id' => $user->id,
         ]);
     }
 
