@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\Report;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,9 @@ class MessageController extends Controller
                 'receiver_id' => 'required|exists:users,id',
                 'message' => 'nullable|string|max:1000',
                 'image' => 'nullable|image|max:10240', // Max 10MB
+                'file' => 'nullable|file|max:20480',
+                'reply_to_id' => 'nullable|exists:messages,id',
+                'ad_id' => 'nullable|exists:ads,id',
             ]);
 
             if ($validator->fails()) {
@@ -43,9 +47,20 @@ class MessageController extends Controller
                 return response()->json(['error' => 'Cannot send message to blocked user or if you are blocked'], 403);
             }
 
+            $recentMessages = Message::where('sender_id', $request->user()->id)
+                ->where('created_at', '>=', now()->subSeconds(10))
+                ->count();
+
+            if ($recentMessages >= 5) {
+                return response()->json([
+                    'error' => 'Too many messages. Please slow down.',
+                ], 429);
+            }
+
             $messageData = [
                 'sender_id' => $request->user()->id,
                 'receiver_id' => $request->receiver_id,
+                'reply_to_id' => $request->reply_to_id,
                 'message' => $request->message ?? '',
                 'message_type' => 'text',
             ];
@@ -57,8 +72,16 @@ class MessageController extends Controller
                 $messageData['message_type'] = 'image';
             }
 
+            if ($request->hasFile('file')) {
+                $file = $request->file('file');
+                $path = $file->store('chat', 'supabase');
+                $messageData['file_url'] = Storage::disk('supabase')->url($path);
+                $messageData['file_name'] = $file->getClientOriginalName();
+                $messageData['message_type'] = 'file';
+            }
+
             if (empty($messageData['message']) && !isset($messageData['file_url'])) {
-                return response()->json(['error' => 'Message or image is required'], 422);
+                return response()->json(['error' => 'Message, image, or file is required'], 422);
             }
 
             $message = DB::transaction(function () use ($request, $messageData) {
@@ -92,7 +115,7 @@ class MessageController extends Controller
                 return $message;
             });
 
-            return response()->json($message);
+            return response()->json($this->serializeMessage($message->load('replyTo:id,message,message_type,file_url,file_name')));
         }
         catch (\Exception $e) {
             Log::error('Error in MessageController@send', ['exception' => $e->getMessage()]);
@@ -134,13 +157,19 @@ class MessageController extends Controller
         }
 
         $limit = min(max((int) $request->query('limit', 50), 1), 100);
-        $messages = $query->orderBy('created_at', 'desc')
+        $messages = $query->with('replyTo:id,message,message_type,file_url,file_name')
+            ->orderBy('created_at', 'desc')
             ->limit($limit)
             ->get()
             ->reverse()
             ->values();
 
-        return response()->json($messages);
+        Message::where('sender_id', $otherUserId)
+            ->where('receiver_id', $authUserId)
+            ->where('is_read', false)
+            ->update(['is_read' => true, 'read_at' => now()]);
+
+        return response()->json($messages->map(fn ($message) => $this->serializeMessage($message)));
     }
 
     public function conversations(Request $request)
@@ -154,7 +183,13 @@ class MessageController extends Controller
             })->orWhere(function ($q) use ($userId) {
                 $q->where('receiver_id', $userId)->whereNull('receiver_deleted_at');
             })
-                ->with(['sender:id,name,avatar', 'receiver:id,name,avatar', 'lastMessage'])
+                ->with([
+                    'sender:id,name,avatar,last_activity_at,is_online',
+                    'receiver:id,name,avatar,last_activity_at,is_online',
+                    'lastMessage',
+                    'ad:id,title,price,currency,location',
+                    'ad.mainImage:id,ad_id,image_path,url,is_main',
+                ])
                 ->orderBy('last_message_at', 'desc')
                 ->limit(100)
                 ->get()
@@ -162,11 +197,27 @@ class MessageController extends Controller
                 $otherUser = $conv->sender_id == $userId ? $conv->receiver : $conv->sender;
                 return [
                 'id' => $conv->id,
+                'ad_id' => $conv->ad_id,
+                'ad' => $conv->ad ? [
+                    'id' => $conv->ad->id,
+                    'title' => $conv->ad->title,
+                    'price' => $conv->ad->price,
+                    'currency' => $conv->ad->currency,
+                    'location' => $conv->ad->location,
+                    'image' => $conv->ad->mainImage->url ?? $conv->ad->mainImage->image_path ?? null,
+                ] : null,
                 'other_user_id' => $otherUser->id,
                 'name' => $otherUser->name ?? 'Unknown User',
                 'avatar' => $otherUser->avatar_url ?? null,
+                'is_online' => (bool) ($otherUser->is_online ?? false),
+                'last_activity_at' => $otherUser->last_activity_at,
                 'last_message' => $conv->lastMessage->message ?? '',
+                'last_message_type' => $conv->lastMessage->message_type ?? 'text',
                 'date' => $conv->last_message_at,
+                'unread_count' => Message::where('conversation_id', $conv->id)
+                    ->where('receiver_id', $userId)
+                    ->where('is_read', false)
+                    ->count(),
                 // Add these for frontend compatibility with _getOtherUser
                 'sender_id' => $conv->sender_id,
                 'receiver_id' => $conv->receiver_id,
@@ -209,6 +260,68 @@ class MessageController extends Controller
         }
     }
 
+    public function deleteMessage(Request $request, $id)
+    {
+        $message = Message::findOrFail($id);
+        $userId = $request->user()->id;
+
+        if ($message->sender_id == $userId) {
+            $message->update(['deleted_by_sender' => true]);
+        } elseif ($message->receiver_id == $userId) {
+            $message->update(['deleted_by_receiver' => true]);
+        } else {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        return response()->json(['message' => 'Message deleted successfully']);
+    }
+
+    public function markRead(Request $request, $otherUserId)
+    {
+        $authUserId = $request->user()->id;
+
+        Message::where('sender_id', $otherUserId)
+            ->where('receiver_id', $authUserId)
+            ->where('is_read', false)
+            ->update(['is_read' => true, 'read_at' => now()]);
+
+        return response()->json(['message' => 'Messages marked as read']);
+    }
+
+    public function reportUser(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'reason' => 'nullable|string|max:100',
+            'description' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        if ((int) $id === (int) $request->user()->id) {
+            return response()->json(['error' => 'Cannot report self'], 400);
+        }
+
+        $conversation = Conversation::where(function ($q) use ($request, $id) {
+            $q->where('sender_id', $request->user()->id)->where('receiver_id', $id);
+        })->orWhere(function ($q) use ($request, $id) {
+            $q->where('sender_id', $id)->where('receiver_id', $request->user()->id);
+        })->first();
+
+        $report = Report::create([
+            'reporter_id' => $request->user()->id,
+            'ad_id' => $conversation?->ad_id,
+            'reported_user_id' => $id,
+            'reason' => $request->reason ?? 'other',
+            'description' => $request->description,
+            'type' => 'user',
+            'status' => 'pending',
+        ]);
+
+        return response()->json(['message' => 'Report submitted successfully', 'data' => $report], 201);
+    }
+
     public function blockUser(Request $request, $id)
     {
         try {
@@ -246,5 +359,32 @@ class MessageController extends Controller
             Log::error('Failed to unblock user', ['exception' => $e->getMessage()]);
             return response()->json(['error' => 'Failed to unblock user'], 500);
         }
+    }
+
+    private function serializeMessage(Message $message): array
+    {
+        return [
+            'id' => $message->id,
+            'conversation_id' => $message->conversation_id,
+            'sender_id' => $message->sender_id,
+            'receiver_id' => $message->receiver_id,
+            'reply_to_id' => $message->reply_to_id,
+            'reply_to' => $message->replyTo ? [
+                'id' => $message->replyTo->id,
+                'message' => $message->replyTo->message,
+                'message_type' => $message->replyTo->message_type,
+                'file_url' => $message->replyTo->file_url,
+                'file_name' => $message->replyTo->file_name,
+            ] : null,
+            'message' => $message->message,
+            'message_type' => $message->message_type,
+            'file_url' => $message->file_url,
+            'file_name' => $message->file_name,
+            'is_read' => (bool) $message->is_read,
+            'read_at' => $message->read_at,
+            'status' => $message->is_read ? 'read' : 'sent',
+            'created_at' => $message->created_at,
+            'updated_at' => $message->updated_at,
+        ];
     }
 }

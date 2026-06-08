@@ -86,11 +86,14 @@ Route::prefix('v1')->group(function () {
                     ->middleware(['throttle:60,1', \App\Http\Middleware\BlockGuestAccess::class]);
                 Route::get('/messages/fetch/{otherUserId}', [MessageController::class, 'fetch']);
                 Route::get('/messages/conversations', [MessageController::class , 'conversations']);
+                Route::post('/messages/read/{otherUserId}', [MessageController::class, 'markRead']);
+                Route::delete('/messages/{id}', [MessageController::class, 'deleteMessage']);
                 Route::delete('/messages/conversations/{id}', [MessageController::class , 'deleteConversation']);
 
                 // Blocking
                 Route::post('/users/{id}/block', [MessageController::class , 'blockUser'])->middleware('throttle:20,1');
                 Route::post('/users/{id}/unblock', [MessageController::class , 'unblockUser'])->middleware('throttle:20,1');
+                Route::post('/users/{id}/report', [MessageController::class , 'reportUser'])->middleware('throttle:10,1');
 
                 // Notifications
                 Route::get('/notifications', [NotificationController::class , 'index']);
