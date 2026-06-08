@@ -452,7 +452,7 @@ class AdController extends Controller
                 ]);
 
                 return response()->json([
-                    'message' => $exception->getMessage(),
+                    'message' => 'فشل رفع صورة الإعلان. تحقق من إعدادات التخزين ثم حاول مرة أخرى',
                 ], 500);
             }
         }

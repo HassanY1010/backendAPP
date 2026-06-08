@@ -28,7 +28,7 @@ class ProfileController extends Controller
                 'max:20',
                 Rule::unique('users', 'phone')->ignore($user->id),
             ],
-            'avatar' => 'sometimes|image|max:2048',
+            'avatar' => 'sometimes|image|max:10240',
             'accepts_notifications' => 'sometimes|boolean',
             'show_phone_number' => 'sometimes|boolean',
         ]);

@@ -38,6 +38,30 @@ class MessageTest extends TestCase
             ->assertJsonStructure(['id', 'sender_id', 'receiver_id', 'message']);
     }
 
+    public function test_conversation_appears_for_both_users_after_message_is_sent(): void
+    {
+        Sanctum::actingAs($this->userA, ['user']);
+
+        $this->postJson('/api/v1/messages/send', [
+            'receiver_id' => $this->userB->id,
+            'message' => 'Hello User B',
+        ])->assertOk();
+
+        $senderResponse = $this->getJson('/api/v1/messages/conversations');
+        $senderResponse->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.other_user_id', $this->userB->id)
+            ->assertJsonPath('0.last_message', 'Hello User B');
+
+        Sanctum::actingAs($this->userB, ['user']);
+
+        $receiverResponse = $this->getJson('/api/v1/messages/conversations');
+        $receiverResponse->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.other_user_id', $this->userA->id)
+            ->assertJsonPath('0.last_message', 'Hello User B');
+    }
+
     public function test_guest_user_cannot_send_messages(): void
     {
         $guest = User::factory()->create(['role' => 'guest']);
