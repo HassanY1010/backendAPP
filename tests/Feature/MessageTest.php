@@ -62,6 +62,30 @@ class MessageTest extends TestCase
             ->assertJsonPath('0.last_message', 'Hello User B');
     }
 
+    public function test_conversations_endpoint_repairs_messages_without_conversation_id(): void
+    {
+        $message = Message::create([
+            'sender_id' => $this->userA->id,
+            'receiver_id' => $this->userB->id,
+            'message' => 'Legacy private message',
+        ]);
+
+        Sanctum::actingAs($this->userA, ['user']);
+
+        $response = $this->getJson('/api/v1/messages/conversations');
+        $response->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.other_user_id', $this->userB->id)
+            ->assertJsonPath('0.last_message', 'Legacy private message');
+
+        $message->refresh();
+        $this->assertNotNull($message->conversation_id);
+        $this->assertDatabaseHas('conversations', [
+            'id' => $message->conversation_id,
+            'last_message_id' => $message->id,
+        ]);
+    }
+
     public function test_guest_user_cannot_send_messages(): void
     {
         $guest = User::factory()->create(['role' => 'guest']);

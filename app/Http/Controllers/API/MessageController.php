@@ -176,6 +176,7 @@ class MessageController extends Controller
     {
         try {
             $userId = $request->user()->id;
+            $this->repairConversationsForUser($userId);
 
             // Get conversations where the user is either sender or receiver and hasn't deleted it
             $conversations = Conversation::where(function ($q) use ($userId) {
@@ -195,6 +196,10 @@ class MessageController extends Controller
                 ->get()
                 ->map(function ($conv) use ($userId) {
                 $otherUser = $conv->sender_id == $userId ? $conv->receiver : $conv->sender;
+                if (!$otherUser) {
+                    return null;
+                }
+
                 return [
                 'id' => $conv->id,
                 'ad_id' => $conv->ad_id,
@@ -226,7 +231,9 @@ class MessageController extends Controller
                 'sender_avatar' => $conv->sender->avatar_url ?? null,
                 'receiver_avatar' => $conv->receiver->avatar_url ?? null,
                 ];
-            });
+            })
+                ->filter()
+                ->values();
 
             return response()->json($conversations);
         }
@@ -234,6 +241,80 @@ class MessageController extends Controller
             Log::error('Error fetching conversations', ['exception' => $e->getMessage()]);
             return response()->json(['error' => 'Failed to fetch conversations'], 500);
         }
+    }
+
+    private function repairConversationsForUser(int $userId): void
+    {
+        DB::transaction(function () use ($userId) {
+            $messagesWithoutConversation = Message::where(function ($q) use ($userId) {
+                $q->where('sender_id', $userId)->orWhere('receiver_id', $userId);
+            })
+                ->whereNull('conversation_id')
+                ->orderBy('created_at')
+                ->get();
+
+            foreach ($messagesWithoutConversation as $message) {
+                $senderId = (int) $message->sender_id;
+                $receiverId = (int) $message->receiver_id;
+
+                if ($senderId === $receiverId) {
+                    continue;
+                }
+
+                $conversation = $this->conversationBetween($senderId, $receiverId, true);
+
+                if (!$conversation) {
+                    $conversation = Conversation::create([
+                        'sender_id' => $senderId,
+                        'receiver_id' => $receiverId,
+                        'ad_id' => null,
+                    ]);
+                }
+
+                $message->conversation_id = $conversation->id;
+                $message->save();
+            }
+
+            Conversation::where(function ($q) use ($userId) {
+                $q->where('sender_id', $userId)->orWhere('receiver_id', $userId);
+            })
+                ->lockForUpdate()
+                ->get()
+                ->each(function (Conversation $conversation) {
+                    $latestMessage = Message::where('conversation_id', $conversation->id)
+                        ->latest('created_at')
+                        ->first();
+
+                    if (!$latestMessage) {
+                        return;
+                    }
+
+                    if (
+                        (int) $conversation->last_message_id !== (int) $latestMessage->id ||
+                        !$conversation->last_message_at
+                    ) {
+                        $conversation->update([
+                            'last_message_id' => $latestMessage->id,
+                            'last_message_at' => $latestMessage->created_at,
+                        ]);
+                    }
+                });
+        });
+    }
+
+    private function conversationBetween(int $firstUserId, int $secondUserId, bool $lock = false): ?Conversation
+    {
+        $query = Conversation::where(function ($q) use ($firstUserId, $secondUserId) {
+            $q->where('sender_id', $firstUserId)->where('receiver_id', $secondUserId);
+        })->orWhere(function ($q) use ($firstUserId, $secondUserId) {
+            $q->where('sender_id', $secondUserId)->where('receiver_id', $firstUserId);
+        });
+
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        return $query->first();
     }
 
     public function deleteConversation(Request $request, $id)
