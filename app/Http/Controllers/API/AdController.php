@@ -384,6 +384,7 @@ class AdController extends Controller
         $ad = Ad::where('user_id', $request->user()->id)->findOrFail($id);
 
         $request->validate([
+            'category_id' => 'sometimes|integer|exists:categories,id',
             'title' => 'string|max:255',
             'description' => 'string',
             'price' => 'numeric',
@@ -394,17 +395,93 @@ class AdController extends Controller
             'longitude' => 'sometimes|nullable|numeric|between:-180,180',
             'condition' => ['sometimes', 'nullable', Rule::in(['new', 'used', 'refurbished'])],
             'is_negotiable' => 'sometimes|boolean',
+            'contact_phone' => 'sometimes|nullable|string|max:20',
+            'contact_whatsapp' => 'sometimes|nullable|string|max:20',
+            'images' => 'sometimes|array|max:10',
+            'images.*' => 'string',
+            'removed_images' => 'sometimes|array',
+            'removed_images.*' => 'string',
         ]);
 
-        $ad->update($request->only([
-            'title', 'description', 'price', 'currency', 'location',
-            'address', 'latitude', 'longitude', 'condition', 'is_negotiable',
-            'contact_phone', 'contact_whatsapp'
-        ]));
+        DB::transaction(function () use ($request, $ad) {
+            $ad->update($request->only([
+                'category_id', 'title', 'description', 'price', 'currency', 'location',
+                'address', 'latitude', 'longitude', 'condition', 'is_negotiable',
+                'contact_phone', 'contact_whatsapp'
+            ]));
+
+            if ($request->has('images')) {
+                $imagePaths = collect($request->input('images', []))
+                    ->map(fn ($path) => trim((string) $path))
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                if ($imagePaths->isEmpty()) {
+                    abort(422, 'The ad must contain at least one image.');
+                }
+
+                $existingImages = $ad->images()->get()->keyBy('image_path');
+
+                $ad->images()
+                    ->whereNotIn('image_path', $imagePaths->all())
+                    ->get()
+                    ->each
+                    ->delete();
+
+                $imagePaths->each(function ($imagePath, $index) use ($ad, $existingImages) {
+                    $image = $existingImages->get($imagePath);
+
+                    if ($image) {
+                        $image->update([
+                            'is_main' => $index === 0,
+                            'sort_order' => $index,
+                        ]);
+                        return;
+                    }
+
+                    $adImage = AdImage::create([
+                        'ad_id' => $ad->id,
+                        'image_path' => $imagePath,
+                        'is_main' => $index === 0,
+                        'sort_order' => $index,
+                    ]);
+
+                    ProcessAdImage::dispatch($adImage);
+                });
+            } elseif ($request->filled('removed_images')) {
+                $removedImages = collect($request->input('removed_images', []))
+                    ->map(fn ($path) => trim((string) $path))
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                if ($removedImages->isNotEmpty()) {
+                    $ad->images()
+                        ->whereIn('image_path', $removedImages->all())
+                        ->get()
+                        ->each
+                        ->delete();
+
+                    $remainingImages = $ad->images()->get()->values();
+
+                    if ($remainingImages->isEmpty()) {
+                        abort(422, 'The ad must contain at least one image.');
+                    }
+
+                    $remainingImages->each(function ($image, $index) {
+                        $image->update([
+                            'is_main' => $index === 0,
+                            'sort_order' => $index,
+                        ]);
+                    });
+                }
+            }
+        });
 
         $this->bumpAdsCacheVersion();
 
-        return new AdResource($ad);
+        return new AdResource($ad->fresh()->load($this->publicAdRelations()));
     }
 
     public function destroy(Request $request, $id)
@@ -418,7 +495,7 @@ class AdController extends Controller
 
     public function userAds(Request $request)
     {
-        $ads = Ad::with(['category', 'mainImage'])
+        $ads = Ad::with(['category', 'images', 'mainImage'])
             ->where('user_id', $request->user()->id)
             ->latest()
             ->paginate(20);

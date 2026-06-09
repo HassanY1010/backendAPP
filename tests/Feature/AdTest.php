@@ -4,8 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Models\Ad;
+use App\Models\AdImage;
 use App\Models\Category;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 use Laravel\Sanctum\Sanctum;
 
@@ -87,6 +90,70 @@ class AdTest extends TestCase
         ]);
 
         $response->assertStatus(404);
+    }
+
+    public function test_update_ad_syncs_images(): void
+    {
+        Sanctum::actingAs($this->user, ['user']);
+        Storage::fake('supabase');
+        Queue::fake();
+
+        $ad = Ad::create([
+            'user_id' => $this->user->id,
+            'category_id' => $this->category->id,
+            'title' => 'Test Ad With Images',
+            'slug' => 'test-ad-with-images-' . uniqid(),
+            'description' => 'Test description',
+            'price' => 100.00,
+            'currency' => 'SAR',
+            'location' => 'Riyadh',
+            'status' => 'active',
+        ]);
+
+        AdImage::create([
+            'ad_id' => $ad->id,
+            'image_path' => 'ads/old-main.jpg',
+            'is_main' => true,
+            'sort_order' => 0,
+        ]);
+
+        AdImage::create([
+            'ad_id' => $ad->id,
+            'image_path' => 'ads/old-second.jpg',
+            'is_main' => false,
+            'sort_order' => 1,
+        ]);
+
+        $response = $this->postJson("/api/v1/ads/{$ad->id}/update", [
+            'title' => 'Updated Ad With Images',
+            'images' => ['ads/old-second.jpg', 'ads/new-third.jpg'],
+            'removed_images' => ['ads/old-main.jpg'],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.images.0.image_path', 'ads/old-second.jpg')
+            ->assertJsonPath('data.images.0.is_main', true)
+            ->assertJsonPath('data.images.1.image_path', 'ads/new-third.jpg')
+            ->assertJsonPath('data.images.1.is_main', false);
+
+        $this->assertDatabaseMissing('ad_images', [
+            'ad_id' => $ad->id,
+            'image_path' => 'ads/old-main.jpg',
+        ]);
+
+        $this->assertDatabaseHas('ad_images', [
+            'ad_id' => $ad->id,
+            'image_path' => 'ads/old-second.jpg',
+            'is_main' => true,
+            'sort_order' => 0,
+        ]);
+
+        $this->assertDatabaseHas('ad_images', [
+            'ad_id' => $ad->id,
+            'image_path' => 'ads/new-third.jpg',
+            'is_main' => false,
+            'sort_order' => 1,
+        ]);
     }
 
     public function test_user_can_only_delete_own_ad(): void
