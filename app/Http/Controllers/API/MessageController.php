@@ -162,11 +162,11 @@ class MessageController extends Controller
             $conversation = DB::transaction(fn () => $this->getOrCreateConversation($authUserId, $receiverId, $adId, true));
 
             return response()->json($this->serializeConversation($conversation->fresh([
-                'sender:id,name,avatar,last_activity_at,is_online,show_last_seen',
-                'receiver:id,name,avatar,last_activity_at,is_online,show_last_seen',
+                'sender:id,name,avatar,last_activity_at,show_last_seen',
+                'receiver:id,name,avatar,last_activity_at,show_last_seen',
                 'lastMessage',
                 'ad:id,title,price,currency,location',
-                'ad.mainImage:id,ad_id,image_path,url,is_main',
+                'ad.mainImage:id,ad_id,image_path,is_main',
             ]), $authUserId));
         } catch (\InvalidArgumentException $e) {
             return response()->json(['error' => $e->getMessage()], 422);
@@ -237,7 +237,6 @@ class MessageController extends Controller
     {
         try {
             $userId = $request->user()->id;
-            $this->repairConversationsForUser($userId);
 
             // Get conversations where the user is either sender or receiver and hasn't deleted it
             $conversations = Conversation::where(function ($q) use ($userId) {
@@ -246,11 +245,11 @@ class MessageController extends Controller
                 $q->where('receiver_id', $userId)->whereNull('receiver_deleted_at');
             })
                 ->with([
-                    'sender:id,name,avatar,last_activity_at,is_online,show_last_seen',
-                    'receiver:id,name,avatar,last_activity_at,is_online,show_last_seen',
+                    'sender:id,name,avatar,last_activity_at,show_last_seen',
+                    'receiver:id,name,avatar,last_activity_at,show_last_seen',
                     'lastMessage',
                     'ad:id,title,price,currency,location',
-                    'ad.mainImage:id,ad_id,image_path,url,is_main',
+                    'ad.mainImage:id,ad_id,image_path,is_main',
                 ])
                 ->orderBy('last_message_at', 'desc')
                 ->limit(100)
@@ -428,7 +427,7 @@ class MessageController extends Controller
                 'price' => $conv->ad->price,
                 'currency' => $conv->ad->currency,
                 'location' => $conv->ad->location,
-                'image' => $conv->ad->mainImage->url ?? $conv->ad->mainImage->image_path ?? null,
+                'image' => $conv->ad->mainImage->image_url ?? $conv->ad->mainImage->image_path ?? null,
             ] : null,
             'other_user_id' => $otherUser->id,
             'name' => $otherUser->name ?? 'Unknown User',
