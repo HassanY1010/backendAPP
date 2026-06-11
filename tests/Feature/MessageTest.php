@@ -252,6 +252,46 @@ class MessageTest extends TestCase
         ]);
     }
 
+    public function test_conversations_endpoint_repairs_stale_conversation_preview(): void
+    {
+        $conversation = Conversation::create([
+            'sender_id' => $this->userA->id,
+            'receiver_id' => $this->userB->id,
+        ]);
+
+        $first = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_id' => $this->userA->id,
+            'receiver_id' => $this->userB->id,
+            'message' => 'Old message',
+            'created_at' => now()->subMinutes(5),
+        ]);
+
+        $latest = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_id' => $this->userB->id,
+            'receiver_id' => $this->userA->id,
+            'message' => 'Latest visible message',
+            'created_at' => now(),
+        ]);
+
+        $conversation->update([
+            'last_message_id' => $first->id,
+            'last_message_at' => $first->created_at,
+        ]);
+
+        Sanctum::actingAs($this->userA, ['user']);
+
+        $this->getJson('/api/v1/messages/conversations')
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.id', $conversation->id)
+            ->assertJsonPath('0.last_message', 'Latest visible message');
+
+        $conversation->refresh();
+        $this->assertSame($latest->id, (int) $conversation->last_message_id);
+    }
+
     public function test_guest_user_cannot_send_messages(): void
     {
         $guest = User::factory()->create(['role' => 'guest']);

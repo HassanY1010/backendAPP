@@ -273,7 +273,10 @@ class MessageController extends Controller
             $messagesWithoutConversation = Message::where(function ($q) use ($userId) {
                 $q->where('sender_id', $userId)->orWhere('receiver_id', $userId);
             })
-                ->whereNull('conversation_id')
+                ->where(function ($q) {
+                    $q->whereNull('conversation_id')
+                        ->orWhereDoesntHave('conversation');
+                })
                 ->orderBy('created_at')
                 ->get();
 
@@ -306,7 +309,8 @@ class MessageController extends Controller
                 ->get()
                 ->each(function (Conversation $conversation) {
                     $latestMessage = Message::where('conversation_id', $conversation->id)
-                        ->latest('created_at')
+                        ->orderByDesc('created_at')
+                        ->orderByDesc('id')
                         ->first();
 
                     if (!$latestMessage) {

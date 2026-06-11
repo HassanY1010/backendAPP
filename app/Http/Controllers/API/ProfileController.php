@@ -179,7 +179,7 @@ class ProfileController extends Controller
     {
         try {
             $user = $request->user();
-            $recordLimit = 80;
+            $recordLimit = 35;
 
             $adsBaseQuery = $user->ads();
             $favoritesBaseQuery = $user->favorites();
@@ -272,7 +272,7 @@ class ProfileController extends Controller
                         'id' => $ad->id,
                         'slug' => $ad->slug,
                         'title' => $ad->title,
-                        'description' => $ad->description,
+                        'description' => Str::limit((string) $ad->description, 500),
                         'price' => $ad->price,
                         'currency' => $ad->currency,
                         'status' => $ad->status,
@@ -301,7 +301,7 @@ class ProfileController extends Controller
                         'id' => $ad->id,
                         'slug' => $ad->slug,
                         'title' => $ad->title,
-                        'description' => $ad->description,
+                        'description' => Str::limit((string) $ad->description, 350),
                         'price' => $ad->price,
                         'currency' => $ad->currency,
                         'status' => $ad->status,
@@ -320,7 +320,7 @@ class ProfileController extends Controller
                 'reviews' => $reviews->map(function ($review) {
                     return [
                         'rating' => $review->rating,
-                        'comment' => $review->comment,
+                        'comment' => Str::limit((string) $review->comment, 350),
                         'reviewer_name' => $review->reviewer?->name,
                         'ad_title' => $review->ad?->title,
                         'is_approved' => $review->is_approved,
@@ -332,7 +332,7 @@ class ProfileController extends Controller
                         'id' => $notification->id,
                         'type' => $notification->type,
                         'title' => $notification->title,
-                        'message' => $notification->message,
+                        'message' => Str::limit((string) $notification->message, 350),
                         'is_read' => $notification->is_read,
                         'read_at' => $notification->read_at?->toIso8601String(),
                         'created_at' => $notification->created_at?->toIso8601String(),
@@ -358,7 +358,7 @@ class ProfileController extends Controller
                         'device_type' => $session->device_type,
                         'duration_minutes' => $session->duration,
                         'is_active' => $session->isActive(),
-                        'user_agent' => $session->user_agent,
+                        'user_agent' => Str::limit((string) $session->user_agent, 220),
                     ];
                 }),
                 'export_limits' => [
