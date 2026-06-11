@@ -10,7 +10,13 @@ class ReportController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Report::with(['reporter', 'ad']);
+        $query = Report::with([
+            'reporter:id,name,phone',
+            'reportedUser:id,name,phone',
+            'ad:id,title,user_id,status',
+            'ad.user:id,name,phone',
+            'resolver:id,name,phone',
+        ]);
         
         // Filter by status
         if ($request->has('status') && $request->status) {
@@ -23,8 +29,10 @@ class ReportController extends Controller
         }
         
         // Sort
-        $sortBy = $request->get('sort_by', 'created_at');
-        $sortOrder = $request->get('sort_order', 'desc');
+        $sortBy = in_array($request->get('sort_by'), ['created_at', 'status', 'type', 'resolved_at'], true)
+            ? $request->get('sort_by')
+            : 'created_at';
+        $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
         $query->orderBy($sortBy, $sortOrder);
         
         $reports = $query->paginate($request->get('per_page', 20));

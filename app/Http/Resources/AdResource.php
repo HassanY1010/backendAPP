@@ -9,6 +9,18 @@ class AdResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $viewer = $request->user();
+        $owner = $this->relationLoaded('user') ? $this->user : null;
+        $canViewContact = true;
+
+        if ($owner) {
+            $canViewContact = (bool) ($owner->show_phone_number ?? true)
+                || ($viewer && (
+                    $viewer->id === $owner->id ||
+                    in_array($viewer->role, ['admin', 'moderator'], true)
+                ));
+        }
+
         return [
             'id' => $this->id,
             'title' => $this->title,
@@ -24,9 +36,10 @@ class AdResource extends JsonResource
             'is_negotiable' => $this->is_negotiable,
             'condition' => $this->condition,
             'status' => $this->status,
+            'reject_reason' => $this->reject_reason,
             'views' => $this->views,
-            'contact_phone' => $this->contact_phone,
-            'contact_whatsapp' => $this->contact_whatsapp,
+            'contact_phone' => $canViewContact ? $this->contact_phone : null,
+            'contact_whatsapp' => $canViewContact ? $this->contact_whatsapp : null,
             'is_featured' => (bool)($this->is_featured ?? false),
             'featured_until' => $this->featured_until,
             'created_at' => $this->created_at,

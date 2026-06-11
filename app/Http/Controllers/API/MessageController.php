@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\Ad;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Report;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -45,6 +47,10 @@ class MessageController extends Controller
 
             if ($isBlocked) {
                 return response()->json(['error' => 'Cannot send message to blocked user or if you are blocked'], 403);
+            }
+
+            if (!$this->allowsIncomingMessages((int) $request->receiver_id)) {
+                return response()->json(['error' => 'This user is not accepting messages'], 403);
             }
 
             $recentMessages = Message::where('sender_id', $request->user()->id)
@@ -87,20 +93,9 @@ class MessageController extends Controller
             $message = DB::transaction(function () use ($request, $messageData) {
                 $authUserId = $request->user()->id;
                 $receiverId = (int) $request->receiver_id;
+                $adId = $request->filled('ad_id') ? (int) $request->ad_id : null;
 
-                $conversation = Conversation::where(function ($q) use ($authUserId, $receiverId) {
-                    $q->where('sender_id', $authUserId)->where('receiver_id', $receiverId);
-                })->orWhere(function ($q) use ($authUserId, $receiverId) {
-                    $q->where('sender_id', $receiverId)->where('receiver_id', $authUserId);
-                })->lockForUpdate()->first();
-
-                if (!$conversation) {
-                    $conversation = Conversation::create([
-                        'sender_id' => $authUserId,
-                        'receiver_id' => $receiverId,
-                        'ad_id' => $request->ad_id ?? null,
-                    ]);
-                }
+                $conversation = $this->getOrCreateConversation($authUserId, $receiverId, $adId, true);
 
                 $messageData['conversation_id'] = $conversation->id;
                 $message = Message::create($messageData);
@@ -117,11 +112,68 @@ class MessageController extends Controller
 
             return response()->json($this->serializeMessage($message->load('replyTo:id,message,message_type,file_url,file_name')));
         }
+        catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 422);
+        }
         catch (\Exception $e) {
             Log::error('Error in MessageController@send', ['exception' => $e->getMessage()]);
             return response()->json([
                 'error' => 'Internal Server Error'
             ], 500);
+        }
+    }
+
+    public function createConversation(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'receiver_id' => 'required|exists:users,id',
+            'ad_id' => 'nullable|exists:ads,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 422);
+        }
+
+        $authUserId = (int) $request->user()->id;
+        $receiverId = (int) $request->receiver_id;
+        $adId = $request->filled('ad_id') ? (int) $request->ad_id : null;
+
+        if ($authUserId === $receiverId) {
+            return response()->json(['error' => 'Cannot create conversation with self'], 400);
+        }
+
+        $isBlocked = \App\Models\BlockedUser::where(function ($q) use ($authUserId, $receiverId) {
+            $q->where('user_id', $authUserId)->where('blocked_id', $receiverId);
+        })->orWhere(function ($q) use ($authUserId, $receiverId) {
+            $q->where('user_id', $receiverId)->where('blocked_id', $authUserId);
+        })->exists();
+
+        if ($isBlocked) {
+            return response()->json(['error' => 'Cannot create conversation with blocked user'], 403);
+        }
+
+        if (!$this->allowsIncomingMessages($receiverId)) {
+            return response()->json(['error' => 'This user is not accepting messages'], 403);
+        }
+
+        try {
+            $conversation = DB::transaction(fn () => $this->getOrCreateConversation($authUserId, $receiverId, $adId, true));
+
+            return response()->json($this->serializeConversation($conversation->fresh([
+                'sender:id,name,avatar,last_activity_at,is_online,show_last_seen',
+                'receiver:id,name,avatar,last_activity_at,is_online,show_last_seen',
+                'lastMessage',
+                'ad:id,title,price,currency,location',
+                'ad.mainImage:id,ad_id,image_path,url,is_main',
+            ]), $authUserId));
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        } catch (\Exception $e) {
+            Log::error('Error in MessageController@createConversation', ['exception' => $e->getMessage()]);
+
+            return response()->json(['error' => 'Failed to create conversation'], 500);
         }
     }
 
@@ -134,18 +186,26 @@ class MessageController extends Controller
             return response()->json(['error' => 'Invalid conversation'], 400);
         }
 
-        // Find conversation to check for deletion flags
-        $conversation = Conversation::where(function ($q) use ($authUserId, $otherUserId) {
-            $q->where('sender_id', $authUserId)->where('receiver_id', $otherUserId);
-        })->orWhere(function ($q) use ($authUserId, $otherUserId) {
-            $q->where('sender_id', $otherUserId)->where('receiver_id', $authUserId);
-        })->first();
+        $adId = $request->filled('ad_id') ? (int) $request->query('ad_id') : null;
 
-        $query = Message::where(function ($q) use ($authUserId, $otherUserId) {
-            $q->where('sender_id', $authUserId)->where('receiver_id', $otherUserId);
-        })->orWhere(function ($q) use ($authUserId, $otherUserId) {
-            $q->where('sender_id', $otherUserId)->where('receiver_id', $authUserId);
-        });
+        // Find conversation to check for deletion flags
+        $conversation = $this->conversationBetween($authUserId, (int) $otherUserId, $adId);
+
+        if ($adId !== null) {
+            if (!$conversation) {
+                return response()->json([]);
+            }
+
+            $query = Message::where('conversation_id', $conversation->id);
+        } else {
+            $query = Message::where(function ($participants) use ($authUserId, $otherUserId) {
+                $participants->where(function ($q) use ($authUserId, $otherUserId) {
+                    $q->where('sender_id', $authUserId)->where('receiver_id', $otherUserId);
+                })->orWhere(function ($q) use ($authUserId, $otherUserId) {
+                    $q->where('sender_id', $otherUserId)->where('receiver_id', $authUserId);
+                });
+            });
+        }
 
         // If conversation was deleted by this user, only show messages after deletion
         if ($conversation) {
@@ -159,6 +219,7 @@ class MessageController extends Controller
         $limit = min(max((int) $request->query('limit', 50), 1), 100);
         $messages = $query->with('replyTo:id,message,message_type,file_url,file_name')
             ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
             ->limit($limit)
             ->get()
             ->reverse()
@@ -185,8 +246,8 @@ class MessageController extends Controller
                 $q->where('receiver_id', $userId)->whereNull('receiver_deleted_at');
             })
                 ->with([
-                    'sender:id,name,avatar,last_activity_at,is_online',
-                    'receiver:id,name,avatar,last_activity_at,is_online',
+                    'sender:id,name,avatar,last_activity_at,is_online,show_last_seen',
+                    'receiver:id,name,avatar,last_activity_at,is_online,show_last_seen',
                     'lastMessage',
                     'ad:id,title,price,currency,location',
                     'ad.mainImage:id,ad_id,image_path,url,is_main',
@@ -194,44 +255,7 @@ class MessageController extends Controller
                 ->orderBy('last_message_at', 'desc')
                 ->limit(100)
                 ->get()
-                ->map(function ($conv) use ($userId) {
-                $otherUser = $conv->sender_id == $userId ? $conv->receiver : $conv->sender;
-                if (!$otherUser) {
-                    return null;
-                }
-
-                return [
-                'id' => $conv->id,
-                'ad_id' => $conv->ad_id,
-                'ad' => $conv->ad ? [
-                    'id' => $conv->ad->id,
-                    'title' => $conv->ad->title,
-                    'price' => $conv->ad->price,
-                    'currency' => $conv->ad->currency,
-                    'location' => $conv->ad->location,
-                    'image' => $conv->ad->mainImage->url ?? $conv->ad->mainImage->image_path ?? null,
-                ] : null,
-                'other_user_id' => $otherUser->id,
-                'name' => $otherUser->name ?? 'Unknown User',
-                'avatar' => $otherUser->avatar_url ?? null,
-                'is_online' => (bool) ($otherUser->is_online ?? false),
-                'last_activity_at' => $otherUser->last_activity_at,
-                'last_message' => $conv->lastMessage->message ?? '',
-                'last_message_type' => $conv->lastMessage->message_type ?? 'text',
-                'date' => $conv->last_message_at,
-                'unread_count' => Message::where('conversation_id', $conv->id)
-                    ->where('receiver_id', $userId)
-                    ->where('is_read', false)
-                    ->count(),
-                // Add these for frontend compatibility with _getOtherUser
-                'sender_id' => $conv->sender_id,
-                'receiver_id' => $conv->receiver_id,
-                'sender_name' => $conv->sender->name ?? null,
-                'receiver_name' => $conv->receiver->name ?? null,
-                'sender_avatar' => $conv->sender->avatar_url ?? null,
-                'receiver_avatar' => $conv->receiver->avatar_url ?? null,
-                ];
-            })
+                ->map(fn ($conv) => $this->serializeConversation($conv, $userId))
                 ->filter()
                 ->values();
 
@@ -261,7 +285,7 @@ class MessageController extends Controller
                     continue;
                 }
 
-                $conversation = $this->conversationBetween($senderId, $receiverId, true);
+                $conversation = $this->conversationBetween($senderId, $receiverId, null, true);
 
                 if (!$conversation) {
                     $conversation = Conversation::create([
@@ -302,12 +326,75 @@ class MessageController extends Controller
         });
     }
 
-    private function conversationBetween(int $firstUserId, int $secondUserId, bool $lock = false): ?Conversation
+    private function getOrCreateConversation(int $authUserId, int $receiverId, ?int $adId, bool $lock = false): Conversation
     {
-        $query = Conversation::where(function ($q) use ($firstUserId, $secondUserId) {
-            $q->where('sender_id', $firstUserId)->where('receiver_id', $secondUserId);
-        })->orWhere(function ($q) use ($firstUserId, $secondUserId) {
-            $q->where('sender_id', $secondUserId)->where('receiver_id', $firstUserId);
+        if ($authUserId === $receiverId) {
+            throw new \InvalidArgumentException('Cannot create conversation with self');
+        }
+
+        if ($adId !== null) {
+            $adOwnerId = (int) Ad::whereKey($adId)->value('user_id');
+            if (!$adOwnerId || !in_array($adOwnerId, [$authUserId, $receiverId], true)) {
+                throw new \InvalidArgumentException('Ad must belong to one conversation participant');
+            }
+        }
+
+        $conversation = $this->conversationBetween($authUserId, $receiverId, $adId, $lock);
+
+        if ($conversation) {
+            $updates = [
+                'sender_deleted_at' => null,
+                'receiver_deleted_at' => null,
+            ];
+
+            if ($adId !== null && $conversation->ad_id === null) {
+                $updates['ad_id'] = $adId;
+            }
+
+            $conversation->update($updates);
+
+            return $conversation;
+        }
+
+        try {
+            return Conversation::create([
+                'sender_id' => $authUserId,
+                'receiver_id' => $receiverId,
+                'ad_id' => $adId,
+            ]);
+        } catch (QueryException $e) {
+            $conversation = $this->conversationBetween($authUserId, $receiverId, $adId, $lock);
+
+            if ($conversation) {
+                return $conversation;
+            }
+
+            throw $e;
+        }
+    }
+
+    private function allowsIncomingMessages(int $receiverId): bool
+    {
+        $value = User::whereKey($receiverId)->value('allow_messages');
+        return $value === null ? true : (bool) $value;
+    }
+
+    private function conversationBetween(int $firstUserId, int $secondUserId, ?int $adId = null, bool $lock = false): ?Conversation
+    {
+        $query = Conversation::where(function ($participants) use ($firstUserId, $secondUserId) {
+            $participants->where(function ($q) use ($firstUserId, $secondUserId) {
+                $q->where('sender_id', $firstUserId)->where('receiver_id', $secondUserId);
+            })->orWhere(function ($q) use ($firstUserId, $secondUserId) {
+                $q->where('sender_id', $secondUserId)->where('receiver_id', $firstUserId);
+            });
+        });
+
+        $query->where(function ($q) use ($adId) {
+            if ($adId === null) {
+                $q->whereNull('ad_id');
+            } else {
+                $q->where('ad_id', $adId);
+            }
         });
 
         if ($lock) {
@@ -315,6 +402,49 @@ class MessageController extends Controller
         }
 
         return $query->first();
+    }
+
+    private function serializeConversation(?Conversation $conv, int $userId): ?array
+    {
+        if (!$conv) {
+            return null;
+        }
+
+        $otherUser = $conv->sender_id == $userId ? $conv->receiver : $conv->sender;
+        if (!$otherUser) {
+            return null;
+        }
+
+        return [
+            'id' => $conv->id,
+            'ad_id' => $conv->ad_id,
+            'ad' => $conv->ad ? [
+                'id' => $conv->ad->id,
+                'title' => $conv->ad->title,
+                'price' => $conv->ad->price,
+                'currency' => $conv->ad->currency,
+                'location' => $conv->ad->location,
+                'image' => $conv->ad->mainImage->url ?? $conv->ad->mainImage->image_path ?? null,
+            ] : null,
+            'other_user_id' => $otherUser->id,
+            'name' => $otherUser->name ?? 'Unknown User',
+            'avatar' => $otherUser->avatar_url ?? null,
+            'is_online' => ($otherUser->show_last_seen ?? true) ? (bool) ($otherUser->is_online ?? false) : false,
+            'last_activity_at' => ($otherUser->show_last_seen ?? true) ? $otherUser->last_activity_at : null,
+            'last_message' => $conv->lastMessage->message ?? '',
+            'last_message_type' => $conv->lastMessage->message_type ?? 'text',
+            'date' => $conv->last_message_at,
+            'unread_count' => Message::where('conversation_id', $conv->id)
+                ->where('receiver_id', $userId)
+                ->where('is_read', false)
+                ->count(),
+            'sender_id' => $conv->sender_id,
+            'receiver_id' => $conv->receiver_id,
+            'sender_name' => $conv->sender->name ?? null,
+            'receiver_name' => $conv->receiver->name ?? null,
+            'sender_avatar' => $conv->sender->avatar_url ?? null,
+            'receiver_avatar' => $conv->receiver->avatar_url ?? null,
+        ];
     }
 
     public function deleteConversation(Request $request, $id)

@@ -63,6 +63,10 @@ Route::prefix('v1')->group(function () {
                 Route::post('/ads', [AdController::class, 'store'])
                     ->middleware(\App\Http\Middleware\BlockGuestAccess::class);
                 Route::post('/ads/{id}/update', [AdController::class , 'update']);
+                Route::post('/ads/{id}/mark-sold', [AdController::class , 'markSold'])
+                    ->middleware(\App\Http\Middleware\BlockGuestAccess::class);
+                Route::post('/ads/{id}/review', [AdController::class , 'submitSellerReview'])
+                    ->middleware(['throttle:10,1', \App\Http\Middleware\BlockGuestAccess::class]);
                 Route::delete('/ads/{id}', [AdController::class , 'destroy']);
                 Route::get('/user/ads', [AdController::class , 'userAds']);
                 Route::post('/ads/upload-image', [AdController::class , 'uploadImage'])->middleware('throttle:20,1');
@@ -84,6 +88,8 @@ Route::prefix('v1')->group(function () {
 
                 // Messages
                 Route::post('/messages/send', [MessageController::class, 'send'])
+                    ->middleware(['throttle:60,1', \App\Http\Middleware\BlockGuestAccess::class]);
+                Route::post('/messages/conversations', [MessageController::class, 'createConversation'])
                     ->middleware(['throttle:60,1', \App\Http\Middleware\BlockGuestAccess::class]);
                 Route::get('/messages/fetch/{otherUserId}', [MessageController::class, 'fetch']);
                 Route::get('/messages/conversations', [MessageController::class , 'conversations']);
@@ -143,6 +149,19 @@ Route::prefix('v1')->group(function () {
                     Route::get('/reports', [\App\Http\Controllers\API\Admin\ReportController::class , 'index']);
                     Route::post('/report/{id}/resolve', [\App\Http\Controllers\API\Admin\ReportController::class , 'resolve']);
                     Route::delete('/report/{id}', [\App\Http\Controllers\API\Admin\ReportController::class , 'destroy']);
+
+                    // Activity and moderation
+                    Route::get('/app-reviews', [\App\Http\Controllers\API\Admin\ActivityController::class, 'appReviews']);
+                    Route::delete('/app-review/{id}', [\App\Http\Controllers\API\Admin\ActivityController::class, 'deleteAppReview']);
+                    Route::get('/messages', [\App\Http\Controllers\API\Admin\ActivityController::class, 'messages']);
+                    Route::delete('/message/{id}', [\App\Http\Controllers\API\Admin\ActivityController::class, 'deleteMessage']);
+                    Route::get('/notifications', [\App\Http\Controllers\API\Admin\ActivityController::class, 'notifications']);
+                    Route::delete('/notification/{id}', [\App\Http\Controllers\API\Admin\ActivityController::class, 'deleteNotification']);
+                    Route::get('/saved-searches', [\App\Http\Controllers\API\Admin\ActivityController::class, 'savedSearches']);
+                    Route::patch('/saved-search/{id}', [\App\Http\Controllers\API\Admin\ActivityController::class, 'updateSavedSearch']);
+                    Route::delete('/saved-search/{id}', [\App\Http\Controllers\API\Admin\ActivityController::class, 'deleteSavedSearch']);
+                    Route::get('/phone-verifications', [\App\Http\Controllers\API\Admin\ActivityController::class, 'phoneVerifications']);
+                    Route::patch('/phone-verification/{id}', [\App\Http\Controllers\API\Admin\ActivityController::class, 'updatePhoneVerification']);
 
                     // Stats
                     Route::get('/stats', [\App\Http\Controllers\API\Admin\StatsController::class , 'index']);

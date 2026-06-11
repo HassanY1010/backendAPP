@@ -176,6 +176,24 @@ class ProductionHardeningTest extends TestCase
         $this->assertNotNull($user->otp_expires_at);
     }
 
+    public function test_send_otp_accepts_yemeni_78_prefix(): void
+    {
+        $this->fakeSmsGateway();
+
+        $this->postJson('/api/v1/auth/send-otp', [
+            'phone' => '+967787777777',
+        ])->assertOk()
+            ->assertJsonPath('status', 'sent');
+
+        Http::assertSent(function ($request) {
+            return ($request->data()['mobileNo'] ?? null) === '967787777777';
+        });
+
+        $this->assertDatabaseHas('users', [
+            'phone' => '+967787777777',
+        ]);
+    }
+
     public function test_send_otp_rejects_numbers_not_supported_by_current_sms_gateway(): void
     {
         $this->fakeSmsGateway();

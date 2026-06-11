@@ -109,7 +109,7 @@ class ImageStorageService
 
         $mime = $file->getMimeType();
         if ($mime && !in_array($mime, self::ALLOWED_MIMES, true)) {
-            throw new RuntimeException("نوع الملف غير مدعوم: {$mime}. المدعوم: JPEG, PNG, WebP.");
+            throw new RuntimeException("نوع الملف غير مدعوم: {$mime}. المدعوم: JPEG, JPG, PNG, WebP, GIF.");
         }
     }
 

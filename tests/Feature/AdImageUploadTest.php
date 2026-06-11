@@ -39,6 +39,27 @@ class AdImageUploadTest extends TestCase
         $this->assertStringContainsString('ads/', $response->json('url'));
     }
 
+    public function test_ad_image_upload_accepts_all_supported_image_types(): void
+    {
+        Storage::fake('supabase');
+
+        $user = User::factory()->create();
+        Sanctum::actingAs($user, ['user']);
+
+        foreach (['jpg', 'jpeg', 'png', 'webp', 'gif'] as $extension) {
+            $response = $this->post('/api/v1/ads/upload-image', [
+                'image' => UploadedFile::fake()->image("ad-photo.{$extension}", 200, 200),
+            ], [
+                'Accept' => 'application/json',
+            ]);
+
+            $response->assertOk()
+                ->assertJsonStructure(['path', 'url']);
+
+            Storage::disk('supabase')->assertExists($response->json('path'));
+        }
+    }
+
     public function test_ad_image_upload_returns_friendly_error_when_storage_fails(): void
     {
         $user = User::factory()->create();

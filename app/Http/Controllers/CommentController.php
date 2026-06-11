@@ -30,7 +30,7 @@ class CommentController extends Controller
                 return response()->json(['errors' => $validator->errors()], 422);
             }
 
-            $ad = Ad::findOrFail($adId);
+            $ad = Ad::with('user:id,accepts_notifications')->findOrFail($adId);
 
             $comment = $ad->comments()->create([
                 'user_id' => $request->user()->id,
@@ -38,7 +38,7 @@ class CommentController extends Controller
             ]);
 
             // Trigger Notification
-            if ($ad->user_id !== $request->user()->id) {
+            if ($ad->user_id !== $request->user()->id && ($ad->user?->accepts_notifications ?? true)) {
                 \App\Models\Notification::create([
                     'user_id' => $ad->user_id,
                     'type' => 'comment',

@@ -19,6 +19,7 @@ class UserResource extends JsonResource
         $activeAdsCount = (int) ($this->active_ads_count ?? 0);
         $successfulAdsCount = (int) ($this->successful_ads_count ?? 0);
         $phoneVerified = (bool) $this->phone_verified_at;
+        $showLastSeen = (bool) ($this->show_last_seen ?? true);
         $recentlyActive = (bool) ($this->last_activity_at && $this->last_activity_at->gte(now()->subDays(7)));
         $fastResponder = (bool) ($this->is_online || ($this->last_activity_at && $this->last_activity_at->gte(now()->subDay())));
 
@@ -32,8 +33,11 @@ class UserResource extends JsonResource
             'avatar'               => $this->avatar,
             'avatar_url'           => $this->avatar_url,
             'role'                 => $this->role,
+            'is_active'            => (bool) $this->is_active,
             'accepts_notifications'=> $this->accepts_notifications,
             'show_phone_number'    => $this->show_phone_number,
+            'show_last_seen'       => $showLastSeen,
+            'allow_messages'       => (bool) ($this->allow_messages ?? true),
             // Use whenLoaded to avoid N+1; is_following computed in controller when needed
             'is_following'         => $this->when(
                 $viewer && $viewer->id !== $this->id,
@@ -48,8 +52,8 @@ class UserResource extends JsonResource
             'successful_ads_count' => $successfulAdsCount,
             'rating'               => $rating,
             'ratings_count'        => $ratingsCount,
-            'is_online'            => $this->is_online,
-            'last_activity_at'     => $this->last_activity_at,
+            'is_online'            => $showLastSeen ? $this->is_online : false,
+            'last_activity_at'     => $showLastSeen ? $this->last_activity_at : null,
             'trust_signals'        => [
                 'phone_verified' => $phoneVerified,
                 'recently_active' => $recentlyActive,

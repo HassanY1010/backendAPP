@@ -22,16 +22,17 @@ class FollowController extends Controller
             if (!$isFollowing) {
                 $currentUser->following()->attach($id);
                 
-                // Trigger Notification
-                \App\Models\Notification::create([
-                    'user_id' => $userToFollow->id,
-                    'type' => 'follow',
-                    'title' => 'متابع جديد',
-                    'message' => 'قام ' . $currentUser->name . ' بمتابعتك',
-                    'data' => [
-                        'follower_id' => $currentUser->id,
-                    ],
-                ]);
+                if ($userToFollow->accepts_notifications) {
+                    \App\Models\Notification::create([
+                        'user_id' => $userToFollow->id,
+                        'type' => 'follow',
+                        'title' => 'متابع جديد',
+                        'message' => 'قام ' . $currentUser->name . ' بمتابعتك',
+                        'data' => [
+                            'follower_id' => $currentUser->id,
+                        ],
+                    ]);
+                }
             }
 
             return response()->json(['message' => 'Followed successfully', 'is_following' => true]);

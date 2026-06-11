@@ -6,6 +6,8 @@ use App\Models\User;
 use App\Models\Ad;
 use App\Models\AdImage;
 use App\Models\Category;
+use App\Models\Conversation;
+use App\Models\Review;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -174,5 +176,145 @@ class AdTest extends TestCase
 
         $response = $this->deleteJson("/api/v1/ads/{$ad->id}");
         $response->assertStatus(404); // findOrFail with user_id scope throws 404
+    }
+
+    public function test_ad_views_are_counted_once_per_non_owner_account(): void
+    {
+        $ad = Ad::create([
+            'user_id' => $this->user->id,
+            'category_id' => $this->category->id,
+            'title' => 'Unique views ad',
+            'slug' => 'unique-views-ad-' . uniqid(),
+            'description' => 'Test description',
+            'price' => 100.00,
+            'currency' => 'SAR',
+            'location' => 'Riyadh',
+            'status' => 'active',
+            'views' => 0,
+        ]);
+
+        Sanctum::actingAs($this->user, ['user']);
+        $this->getJson("/api/v1/ads/{$ad->id}")
+            ->assertOk()
+            ->assertJsonPath('data.views', 0);
+
+        $this->assertDatabaseMissing('ad_views', [
+            'ad_id' => $ad->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        Sanctum::actingAs($this->otherUser, ['user']);
+        $this->getJson("/api/v1/ads/{$ad->id}")
+            ->assertOk()
+            ->assertJsonPath('data.views', 1);
+
+        $this->getJson("/api/v1/ads/{$ad->id}")
+            ->assertOk()
+            ->assertJsonPath('data.views', 1);
+
+        $thirdUser = User::factory()->create(['role' => 'user', 'is_active' => true]);
+        Sanctum::actingAs($thirdUser, ['user']);
+        $this->getJson("/api/v1/ads/{$ad->id}")
+            ->assertOk()
+            ->assertJsonPath('data.views', 2);
+
+        $this->assertDatabaseCount('ad_views', 2);
+        $this->assertSame(2, (int) $ad->fresh()->views);
+    }
+
+    public function test_owner_can_mark_ad_as_sold_and_dashboard_counts_it(): void
+    {
+        Sanctum::actingAs($this->user, ['user']);
+
+        $ad = Ad::create([
+            'user_id' => $this->user->id,
+            'category_id' => $this->category->id,
+            'title' => 'Sold from app',
+            'slug' => 'sold-from-app-' . uniqid(),
+            'description' => 'Test description',
+            'price' => 100.00,
+            'currency' => 'SAR',
+            'location' => 'Riyadh',
+            'status' => 'active',
+        ]);
+
+        $this->postJson("/api/v1/ads/{$ad->id}/mark-sold")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'sold');
+
+        $this->assertSame('sold', $ad->fresh()->status);
+
+        $this->getJson('/api/v1/user/dashboard-stats')
+            ->assertOk()
+            ->assertJsonPath('stats.total_sold', 1);
+    }
+
+    public function test_buyer_can_review_seller_after_sold_ad_conversation(): void
+    {
+        $ad = Ad::create([
+            'user_id' => $this->user->id,
+            'category_id' => $this->category->id,
+            'title' => 'Reviewable ad',
+            'slug' => 'reviewable-ad-' . uniqid(),
+            'description' => 'Test description',
+            'price' => 100.00,
+            'currency' => 'SAR',
+            'location' => 'Riyadh',
+            'status' => 'sold',
+        ]);
+
+        Conversation::create([
+            'ad_id' => $ad->id,
+            'sender_id' => $this->otherUser->id,
+            'receiver_id' => $this->user->id,
+        ]);
+
+        Sanctum::actingAs($this->user, ['user']);
+        $this->postJson("/api/v1/ads/{$ad->id}/review", [
+            'rating' => 5,
+            'comment' => 'Great seller',
+        ])->assertStatus(422);
+
+        Sanctum::actingAs($this->otherUser, ['user']);
+        $this->postJson("/api/v1/ads/{$ad->id}/review", [
+            'rating' => 5,
+            'comment' => 'Great seller',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.rating', 5);
+
+        $this->assertDatabaseHas('reviews', [
+            'reviewer_id' => $this->otherUser->id,
+            'reviewed_id' => $this->user->id,
+            'ad_id' => $ad->id,
+            'rating' => 5,
+        ]);
+
+        Sanctum::actingAs($this->user, ['user']);
+        $this->getJson('/api/v1/user/dashboard-stats')
+            ->assertOk()
+            ->assertJsonPath('stats.rating', 5);
+    }
+
+    public function test_review_requires_conversation_on_sold_ad(): void
+    {
+        $ad = Ad::create([
+            'user_id' => $this->user->id,
+            'category_id' => $this->category->id,
+            'title' => 'No conversation ad',
+            'slug' => 'no-conversation-ad-' . uniqid(),
+            'description' => 'Test description',
+            'price' => 100.00,
+            'currency' => 'SAR',
+            'location' => 'Riyadh',
+            'status' => 'sold',
+        ]);
+
+        Sanctum::actingAs($this->otherUser, ['user']);
+        $this->postJson("/api/v1/ads/{$ad->id}/review", [
+            'rating' => 4,
+        ])->assertForbidden();
+
+        $this->assertSame(0, Review::count());
     }
 }

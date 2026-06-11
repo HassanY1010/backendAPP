@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Ad;
 use App\Models\Notification;
 use App\Models\SavedSearch;
+use App\Models\User;
 use Illuminate\Support\Str;
 
 class SavedSearchNotifier
@@ -23,6 +24,13 @@ class SavedSearchNotifier
             ->chunkById(100, function ($savedSearches) use ($ad) {
                 foreach ($savedSearches as $savedSearch) {
                     if (!$this->adMatches($ad, $savedSearch->filters ?? [])) {
+                        continue;
+                    }
+
+                    $acceptsNotifications = User::whereKey($savedSearch->user_id)
+                        ->value('accepts_notifications');
+
+                    if ($acceptsNotifications !== null && ! (bool) $acceptsNotifications) {
                         continue;
                     }
 

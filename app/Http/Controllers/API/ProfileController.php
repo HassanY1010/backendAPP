@@ -28,9 +28,11 @@ class ProfileController extends Controller
                 'max:20',
                 Rule::unique('users', 'phone')->ignore($user->id),
             ],
-            'avatar' => 'sometimes|image|max:10240',
+            'avatar' => 'sometimes|image|mimes:jpg,jpeg,png,webp,gif|max:10240',
             'accepts_notifications' => 'sometimes|boolean',
             'show_phone_number' => 'sometimes|boolean',
+            'show_last_seen' => 'sometimes|boolean',
+            'allow_messages' => 'sometimes|boolean',
         ]);
 
         if ($request->has('accepts_notifications')) {
@@ -39,6 +41,14 @@ class ProfileController extends Controller
 
         if ($request->has('show_phone_number')) {
             $user->show_phone_number = $request->boolean('show_phone_number');
+        }
+
+        if ($request->has('show_last_seen')) {
+            $user->show_last_seen = $request->boolean('show_last_seen');
+        }
+
+        if ($request->has('allow_messages')) {
+            $user->allow_messages = $request->boolean('allow_messages');
         }
 
         if ($request->hasFile('avatar')) {
@@ -247,6 +257,8 @@ class ProfileController extends Controller
                     'role' => $user->role,
                     'is_active' => $user->is_active,
                     'show_phone_number' => $user->show_phone_number,
+                    'show_last_seen' => $user->show_last_seen,
+                    'allow_messages' => $user->allow_messages,
                     'accepts_notifications' => $user->accepts_notifications,
                     'phone_verified_at' => $user->phone_verified_at?->toIso8601String(),
                     'created_at' => $user->created_at->toIso8601String(),

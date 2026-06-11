@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Ad;
 use App\Models\AdImage;
 use App\Models\Category;
+use App\Models\Conversation;
+use App\Models\Review;
 use Illuminate\Http\Request;
 use App\Http\Resources\AdResource;
 use Illuminate\Support\Facades\DB;
@@ -368,13 +370,28 @@ class AdController extends Controller
             ->withCount('favoritedBy as likes_count')
             ->findOrFail($id);
 
-        // Check if liked by current user
+        // Check if liked by current user and count one real view per account.
         if (auth('sanctum')->check()) {
-            $ad->is_liked = $ad->favoritedBy()->where('user_id', auth('sanctum')->id())->exists();
-        }
+            $viewerId = auth('sanctum')->id();
+            $ad->is_liked = $ad->favoritedBy()->where('user_id', $viewerId)->exists();
 
-        // Increment views
-        $ad->increment('views');
+            if ((int) $ad->user_id !== (int) $viewerId) {
+                $inserted = DB::table('ad_views')->insertOrIgnore([
+                    'ad_id' => $ad->id,
+                    'user_id' => $viewerId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                if ($inserted > 0) {
+                    $ad->increment('views');
+                    $ad->views = (int) DB::table('ads')
+                        ->where('id', $ad->id)
+                        ->value('views');
+                    $this->bumpAdsCacheVersion();
+                }
+            }
+        }
 
         return new AdResource($ad);
     }
@@ -493,6 +510,85 @@ class AdController extends Controller
         return response()->json(['message' => 'Ad deleted successfully']);
     }
 
+    public function markSold(Request $request, $id)
+    {
+        $ad = Ad::where('user_id', $request->user()->id)
+            ->with($this->publicAdRelations())
+            ->findOrFail($id);
+
+        $ad->update([
+            'status' => 'sold',
+            'reject_reason' => null,
+        ]);
+
+        $this->bumpAdsCacheVersion();
+        Cache::forget("user_dashboard_stats_{$request->user()->id}");
+
+        return new AdResource($ad->fresh()->load($this->publicAdRelations()));
+    }
+
+    public function submitSellerReview(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'rating' => 'required|integer|min:1|max:5',
+            'comment' => 'nullable|string|max:1000',
+        ]);
+
+        $ad = Ad::with('user')->findOrFail($id);
+        $reviewer = $request->user();
+        $sellerId = (int) $ad->user_id;
+
+        if ((int) $reviewer->id === $sellerId) {
+            return response()->json([
+                'message' => 'لا يمكن لصاحب الإعلان تقييم نفسه',
+            ], 422);
+        }
+
+        if ($ad->status !== 'sold') {
+            return response()->json([
+                'message' => 'يمكن تقييم البائع بعد بيع الإعلان فقط',
+            ], 422);
+        }
+
+        $hasAdConversation = Conversation::where('ad_id', $ad->id)
+            ->where(function ($query) use ($reviewer, $sellerId) {
+                $query->where(function ($q) use ($reviewer, $sellerId) {
+                    $q->where('sender_id', $reviewer->id)
+                        ->where('receiver_id', $sellerId);
+                })->orWhere(function ($q) use ($reviewer, $sellerId) {
+                    $q->where('sender_id', $sellerId)
+                        ->where('receiver_id', $reviewer->id);
+                });
+            })
+            ->exists();
+
+        if (! $hasAdConversation) {
+            return response()->json([
+                'message' => 'يمكن تقييم البائع فقط من مستخدم تواصل معه على هذا الإعلان',
+            ], 403);
+        }
+
+        $review = Review::updateOrCreate(
+            [
+                'reviewer_id' => $reviewer->id,
+                'reviewed_id' => $sellerId,
+                'ad_id' => $ad->id,
+            ],
+            [
+                'rating' => $validated['rating'],
+                'comment' => $validated['comment'] ?? null,
+                'is_approved' => true,
+            ]
+        );
+
+        Cache::forget("user_dashboard_stats_{$sellerId}");
+
+        return response()->json([
+            'message' => 'تم حفظ تقييم البائع بنجاح',
+            'data' => $review->load('reviewer:id,name'),
+        ], 201);
+    }
+
     public function userAds(Request $request)
     {
         $ads = Ad::with(['category', 'images', 'mainImage'])
@@ -506,7 +602,7 @@ class AdController extends Controller
     public function uploadImage(Request $request, ImageStorageService $imageStorage)
     {
         $request->validate([
-            'image' => 'required|image|mimes:jpeg,png,webp,gif|max:10240', // Max 10MB
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp,gif|max:10240', // Max 10MB
         ]);
 
         if ($request->hasFile('image')) {

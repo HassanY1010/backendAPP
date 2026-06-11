@@ -67,6 +67,9 @@ class Ad extends Model
             // Detach from favorites
             $ad->favoritedBy()->detach();
 
+            // Delete unique view records
+            $ad->viewsRecords()->delete();
+
             // Delete custom fields
             $ad->customFields()->delete();
         };
@@ -108,6 +111,11 @@ class Ad extends Model
     public function comments()
     {
         return $this->hasMany(Comment::class);
+    }
+
+    public function viewsRecords()
+    {
+        return $this->hasMany(AdView::class);
     }
 
 

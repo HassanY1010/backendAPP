@@ -13,6 +13,9 @@ class Conversation extends Model
         'ad_id',
         'sender_id',
         'receiver_id',
+        'conversation_scope',
+        'participant_min_id',
+        'participant_max_id',
         'last_message_id',
         'last_message_at',
         'sender_deleted_at',
@@ -24,6 +27,24 @@ class Conversation extends Model
         'sender_deleted_at' => 'datetime',
         'receiver_deleted_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Conversation $conversation) {
+            if (!$conversation->sender_id || !$conversation->receiver_id) {
+                return;
+            }
+
+            $senderId = (int) $conversation->sender_id;
+            $receiverId = (int) $conversation->receiver_id;
+
+            $conversation->participant_min_id = min($senderId, $receiverId);
+            $conversation->participant_max_id = max($senderId, $receiverId);
+            $conversation->conversation_scope = $conversation->ad_id
+                ? 'ad:' . $conversation->ad_id
+                : 'direct';
+        });
+    }
 
     public function ad()
     {
